@@ -1,0 +1,8 @@
+server:
+  binding:
+    ip: 0.0.0.0
+    port: 9000
+
+auth:
+  me_url: not a url 
+  validate_token_url: https://tokens.indieauth.com/token

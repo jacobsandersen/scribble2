@@ -1,0 +1,197 @@
+use std::collections::HashMap;
+
+use axum::body::Bytes;
+use serde::{Deserialize, Serialize, de::{self, Visitor}, ser::SerializeMap};
+
+#[derive(Debug, PartialEq, Clone)] 
+pub enum Mf2Value {
+  String(String),
+  Markup { value: String, html: String },
+  Object(Mf2Object)
+}
+
+impl Serialize for Mf2Value {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+      where
+          S: serde::Serializer {
+      match &self {
+        Mf2Value::String(str) => {
+          str.serialize(serializer)
+        },
+
+        Mf2Value::Markup { value, html } => {
+          let mut map = serializer.serialize_map(Some(2))?;
+          map.serialize_entry("value", value)?;
+          map.serialize_entry("html", html)?;
+          map.end()
+        },
+
+        Mf2Value::Object (obj) => {
+           obj.serialize(serializer)
+        }
+      }
+  }
+}
+
+struct Mf2ValueVisitor;
+
+impl<'de> Visitor<'de> for Mf2ValueVisitor {
+  type Value = Mf2Value;
+
+  fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+      write!(formatter, "An Mf2Value variant (String, Markup, Object)")
+  } 
+
+  fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where E: serde::de::Error, {
+
+    Ok(Mf2Value::String(v.to_string()))
+  }
+
+  fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where A: serde::de::MapAccess<'de>, {
+    
+    let mut value: Option<String> = None;
+    let mut html: Option<String> = None;
+    let mut r#type: Option<Vec<String>> = None;
+    let mut properties: Option<HashMap<String, Vec<Mf2Value>>> = None;
+    let mut children: Option<Vec<Mf2Object>> = None;
+
+    while let Some(key) = map.next_key::<String>()? {
+      match key.as_str() {
+        "value" => value = Some(map.next_value()?),
+        "html" => html = Some(map.next_value()?),
+        "type" => r#type = Some(map.next_value()?),
+        "properties" => properties = Some(map.next_value()?),
+        "children" => children = Some(map.next_value()?),
+        _ => { map.next_value::<de::IgnoredAny>()?; }
+      }
+    }
+
+    if let (Some(r#type), Some(properties)) = (r#type, properties) {
+      Ok(Mf2Value::Object(Mf2Object { 
+        r#type, 
+        properties, 
+        children
+      }))
+    } else if let (Some(value), Some(html)) = (value, html) {
+      Ok(Mf2Value::Markup { value, html })
+    } else {
+      Err(de::Error::custom("unable to determine Mf2Value variant, neither Markup nor Object"))
+    }
+  }
+}
+
+/// Note: This Deserialize implementation is using `deserialize_any`,
+/// which requires a self-describing format like JSON. This cannot be
+/// used to construct an Mf2Value from a form-encoded byte stream. 
+/// For that, use Mf2Value::from_form.
+impl<'de> Deserialize<'de> for Mf2Value {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: serde::Deserializer<'de> {
+    
+    deserializer.deserialize_any(Mf2ValueVisitor)
+  }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Mf2Object {
+  r#type: Vec<String>,
+  properties: HashMap<String, Vec<Mf2Value>>,
+  children: Option<Vec<Mf2Object>>
+}
+
+impl Mf2Object {
+  /// This function converts a `Bytes` payload containing urlencoded form data
+  /// into an `Mf2Object`.
+  /// 
+  /// Note: If the form data does not contain an `h` property, the default `type` of the
+  /// Mf2Object is `h-entry`.
+  pub fn from_form(form: Bytes) -> Result<Mf2Object, serde::de::value::Error> {
+    let pairs: Vec<(String, String)> = serde_urlencoded::from_bytes(&form)?;
+
+    let mut r#type = String::from("h-entry");
+    let mut properties = HashMap::new();
+
+    for (key, value) in pairs {
+      if key == "h" {
+        r#type = value;
+      } else {
+        let key = key.strip_suffix("[]").unwrap_or(&key).to_string();
+        properties.entry(key).or_insert_with(Vec::new).push(Mf2Value::String(value));
+      }
+    }
+
+    Ok(Mf2Object { r#type: vec![r#type], properties, children: None })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use serde_json::json;
+  use super::*;
+
+  #[test]
+  fn test_serde_value_string() {
+    let value = Mf2Value::String(String::from("test string"));
+    let serialized_value = serde_json::to_value(&value).unwrap();
+    let macro_value = json!("test string");
+    assert_eq!(serialized_value, macro_value);
+
+    let deserialized_value: Mf2Value = serde_json::from_value(macro_value).unwrap();
+    assert_eq!(deserialized_value, value);
+  }
+
+  #[test]
+  fn test_serde_value_markup() {
+    let value = Mf2Value::Markup { value: String::from("hello world!"), html: String::from("<p>hello world!</p>") };
+    let serialized_value = serde_json::to_value(&value).unwrap();
+    let macro_value = json!({ "value": "hello world!", "html": "<p>hello world!</p>" });
+    assert_eq!(serialized_value, macro_value);
+
+    let deserialized_value: Mf2Value = serde_json::from_value(macro_value).unwrap();
+    assert_eq!(deserialized_value, value);
+  }
+
+  #[test]
+  fn test_serde_value_object() {
+    let mut value_properties = HashMap::new();
+    value_properties.insert(String::from("name"), vec![Mf2Value::String(String::from("John Smith"))]);
+
+    let value = Mf2Value::Object(Mf2Object { 
+      r#type: vec![String::from("h-entry")], 
+      properties: value_properties.clone(),
+      children: Some(vec![
+        Mf2Object {
+          r#type: vec![String::from("subtype")],
+          properties: value_properties,
+          children: None
+        }
+      ])
+    });
+
+    let serialized_value = serde_json::to_value(&value).unwrap();
+
+    let macro_value = json!({
+      "type": ["h-entry"],
+      "properties": {
+        "name": ["John Smith"]
+      },
+      "children": [
+        {
+          "type": ["subtype"],
+          "properties": {
+            "name": ["John Smith"]
+          },
+          "children": null
+        }
+      ]
+    });
+
+    assert_eq!(serialized_value, macro_value);
+
+    let deserialized_value: Mf2Value = serde_json::from_value(macro_value).unwrap();
+
+    assert_eq!(deserialized_value, value);
+  }
+}

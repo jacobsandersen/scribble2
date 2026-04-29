@@ -4,5 +4,5 @@ server:
     port: 9000
 
 auth:
-  me_url: not a url 
+  me_url: https://example.org
   validate_token_url: https://tokens.indieauth.com/token

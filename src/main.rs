@@ -3,8 +3,9 @@ use ::config::{Config, Environment, File};
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use scribble::{AppState, config::ScribbleConfig, micropub};
-use tracing::info;
-use std::{error::Error, sync::Arc};
+use tracing::{error, info};
+use validator::Validate;
+use std::{error::Error, process::exit, sync::Arc};
 
 
 #[tokio::main]
@@ -16,6 +17,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .add_source(Environment::default())
     .build()?
     .try_deserialize()?;
+
+  match config.validate() {
+    Ok(_) => (),
+    Err(e) => {
+      error!("Failed to validate configuration: {e}");
+      exit(1);
+    }
+  }
 
   let binding = config.server.binding.to_string();
 

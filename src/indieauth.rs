@@ -34,15 +34,13 @@ pub async fn validate_token(
         .header("Content-Type", "application/x-www-form-urlencoded")
         .form(&payload)
         .send()
-        .await;
+        .await?
+        .json::<TokenInfo>()
+        .await
+        .inspect_err(|e| debug!("error deserializing standard token validation response to TokenInfo: {e:#?}"));
 
     match result {
-        Ok(response) => Ok(
-          response
-            .json::<TokenInfo>()
-            .await
-            .inspect_err(|e| debug!("error deserializing standard token validation response to TokenInfo: {e:#?}"))?
-        ),
+        Ok(response) => Ok(response),
         Err(err) => {
             debug!("token endpoint returned an error for the standard token validation routine, trying nonstandard validation: {err:#?}");
 

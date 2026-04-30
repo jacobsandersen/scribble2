@@ -8,7 +8,7 @@ use axum::{
 };
 use tracing::debug;
 
-use crate::{AppState, indieauth, micropub::error};
+use crate::{AppState, indieauth, micropub::error::{self, unauthorized}};
 
 #[derive(Debug)]
 enum AuthError {
@@ -40,11 +40,7 @@ pub async fn authorize(
 
         let info = indieauth::validate_token(&state, token)
             .await
-            .map_err(|e| {
-                let err_msg = e.to_string();
-                debug!("token validation failed: {}", err_msg);
-                error::unauthorized(&format!("failed to validate token: {}", err_msg))
-            })?;
+            .map_err(|e| unauthorized(&e))?;
 
         debug!("saving token info to request");
 

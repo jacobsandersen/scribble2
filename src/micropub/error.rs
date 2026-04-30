@@ -18,6 +18,10 @@ pub fn invalid_request(message: &str) -> Response {
 //   error(StatusCode::FORBIDDEN, "insufficient_scope", message)
 // }
 
+pub fn system_error(message: &str) -> Response {
+  error(StatusCode::INTERNAL_SERVER_ERROR, "system_error", message)
+}
+
 fn error(status: StatusCode, error: &str, message: &str) -> Response {
   (status, Json(json!({
     "error": error,

@@ -108,10 +108,11 @@ pub async fn handle(State(state): State<Arc<AppState>>, token: Option<Extension<
 async fn decode_body(state: &Arc<AppState>, token: Option<Extension<TokenInfo>>, content_type: Mime, body: Body) -> Result<MicropubBody, Response> {
   match content_type.essence_str() {
     "application/json" => {
+      let token = token.ok_or_else(|| unauthorized("Bearer token is required when sending JSON requests"))?.0;
       Ok(MicropubBody { 
         payload: MicropubPayload::Json(decode_json(body).await?), 
         files: Vec::new(),
-        token: token.ok_or_else(|| system_error("json body handler could not find token; this should not happen"))?.0
+        token
       })
     }
     "application/x-www-form-urlencoded" => {

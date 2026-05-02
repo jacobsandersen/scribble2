@@ -33,12 +33,13 @@ pub async fn store_object(job: &WriteJob) -> Result<String, WriteError> {
 
   debug!("creating content path...");
   let path = build_content_path(&job.state, &slug);
-  let path = path.strip_prefix("/").unwrap_or(&path);
+  let mut path = path.strip_prefix("/").unwrap_or(&path).to_string();
   let mut abs_path = workdir.join(&path);
 
   debug!("ensuring unique path...");
   while abs_path.exists() {
-    abs_path = Path::new(&format!("{}-{}", abs_path.to_string_lossy(), uuid())).to_path_buf();
+    path = format!("{}-{}", path, uuid());
+    abs_path = workdir.join(&path);
   } 
 
   debug!("serializing payload...");

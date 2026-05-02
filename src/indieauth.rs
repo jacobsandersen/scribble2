@@ -8,7 +8,44 @@ use crate::AppState;
 pub struct TokenInfo {
     pub me: String,
     pub client_id: Option<String>,
-    pub scope: Option<String>,
+    scope: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TokenScope {
+  Create,
+  Draft,
+  Update,
+  Delete,
+  Undelete,
+  Media,
+  Unknown(String)
+}
+
+impl From<String> for TokenScope {
+  fn from(value: String) -> Self {
+    match value.as_str() {
+      "create" => TokenScope::Create,
+      "draft" => TokenScope::Draft,
+      "update" => TokenScope::Update,
+      "delete" => TokenScope::Delete,
+      "undelete" => TokenScope::Undelete,
+      "media" => TokenScope::Media,
+      unknown => TokenScope::Unknown(unknown.to_string())
+    }
+  }
+}
+
+impl TokenInfo {
+  pub fn scope(&self) -> Vec<TokenScope> {
+    match &self.scope {
+      Some(scope) => {
+        scope.split(" ").map(|s| TokenScope::from(s.to_string())).collect()
+      },
+
+      None => Vec::new()
+    }
+  }
 }
 
 /// validate_token attempts to validate a given token against the configured token validation endpoint.
@@ -17,14 +54,19 @@ pub struct TokenInfo {
 /// we receive an HTTP error (like not found, or something else), we fall back to an older, nonstandard
 /// token validation technique. In this case, we will send a GET request to the same endpoint with the
 /// token as a Bearer auth header. In either case, if we get a successful response, we decode the body
-/// into a TokenInfo struct and pass that along. Otherwise, we send back a String containing a more
-/// specific error message.
+/// into a TokenInfo struct. Otherwise, we send back a String containing a more specific error message.
+/// With a valid TokenInfo, we compare the token's `me` claim to the instance's configured me_url. If
+/// these values do not match, the token is rejected. Otherwise, the token is accepted.
 pub async fn validate_token(state: &AppState, token: &str) -> Result<TokenInfo, String> {
-  validate_token_inner(state, token).await.map_err(|e| {
-    let err_msg = e.to_string();
-    debug!("token validation failed: {}", err_msg);
-    format!("failed to validate token: {}", err_msg)
-  })
+  let token = validate_token_inner(state, token).await.map_err(|e| {
+    format!("failed to validate token: {}", e)
+  })?;
+
+  if token.me != state.config.auth.me_url {
+    return Err(format!("failed to validate token: configured me_url does not match token's `me` claim"));
+  }
+
+  Ok(token)
 }
 
 async fn validate_token_inner(

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
-use axum::body::Bytes;
 use serde::{Deserialize, Serialize, de::{self, Visitor}, ser::SerializeMap};
+use serde_valid::Validate;
+use tracing::warn;
+
+use crate::micropub::post::MicropubPayload;
 
 #[derive(Debug, PartialEq, Clone)] 
 pub enum Mf2Value {
@@ -94,35 +97,62 @@ impl<'de> Deserialize<'de> for Mf2Value {
   }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Validate)]
 pub struct Mf2Object {
+  #[validate(min_items = 1)]
   r#type: Vec<String>,
-  properties: HashMap<String, Vec<Mf2Value>>,
-  children: Option<Vec<Mf2Object>>
+  pub properties: HashMap<String, Vec<Mf2Value>>,
+  pub children: Option<Vec<Mf2Object>>
 }
 
 impl Mf2Object {
-  /// This function converts a `Bytes` payload containing urlencoded form data
-  /// into an `Mf2Object`.
-  /// 
-  /// Note: If the form data does not contain an `h` property, the default `type` of the
-  /// Mf2Object is `h-entry`.
-  pub fn from_form(form: Bytes) -> Result<Mf2Object, serde::de::value::Error> {
-    let pairs: Vec<(String, String)> = serde_urlencoded::from_bytes(&form)?;
+  pub fn first_type(&self) -> String {
+    self.r#type.first().cloned().unwrap() // serde_valid ensures there is always one item
+  }
 
+  pub fn first_prop(&self, prop: &str) -> Option<Mf2Value> {
+    self.properties
+      .get(&prop.to_string())
+      .and_then(|v| v.first().cloned())
+  }
+
+  /// This function converts a `HashMap<String, Vec<String>>` (form data) payload into an `Mf2Object`.
+  /// 
+  /// Note: If the form data does not contain an `h` property, or if the `h` property is empty,
+  /// the default `type` of the Mf2Object is `h-entry`.
+  pub fn from_form(form: HashMap<String, Vec<String>>) -> Mf2Object {
     let mut r#type = String::from("h-entry");
     let mut properties = HashMap::new();
 
-    for (key, value) in pairs {
+    for (key, value) in form {
       if key == "h" {
-        r#type = value;
+        if let Some(first) = value.first().cloned() {
+          r#type = format!("h-{first}");
+        } else {
+          warn!("received empty h parameter -- object type will default to h-entry");
+        }
       } else {
-        let key = key.strip_suffix("[]").unwrap_or(&key).to_string();
-        properties.entry(key).or_insert_with(Vec::new).push(Mf2Value::String(value));
+        properties.insert(key, value.into_iter().map(|v| Mf2Value::String(v)).collect());
       }
     }
 
-    Ok(Mf2Object { r#type: vec![r#type], properties, children: None })
+    Mf2Object { r#type: vec![r#type], properties, children: None }
+  }
+}
+
+impl TryFrom<MicropubPayload> for Mf2Object {
+  type Error = serde_json::Error;
+  
+  fn try_from(value: MicropubPayload) -> Result<Self, Self::Error> {
+      match value {
+        MicropubPayload::Json(json) => {
+          serde_json::from_value::<Mf2Object>(json)
+        }
+
+        MicropubPayload::Form(form) => {
+          Ok(Mf2Object::from_form(form))
+        }
+      }
   }
 }
 

@@ -149,6 +149,7 @@ async fn decode_form(body: Body) -> Result<HashMap<String, Vec<String>>, Respons
 
   let mut map = HashMap::new();
   for (key, value) in data {
+    let key = key.strip_suffix("[]").unwrap_or(&key).to_string();
     map.entry(key).or_insert_with(Vec::new).push(value);
   }
 

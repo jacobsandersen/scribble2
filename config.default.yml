@@ -6,3 +6,15 @@ server:
 auth:
   me_url: https://example.org
   validate_token_url: https://tokens.indieauth.com/token
+
+micropub:
+  public_url: https://example.org
+  storage:
+    path_pattern: /{year}/{month}/{day}/{slug}
+    git:
+      repository: git@github.com:my-username/my-scribble-content
+      key_path: "~/.ssh/id_rsa"
+      username: ~
+      password: my_passphrase
+      branch: ~
+ 

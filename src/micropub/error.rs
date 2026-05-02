@@ -14,9 +14,9 @@ pub fn invalid_request(message: &str) -> Response {
   error(StatusCode::BAD_REQUEST, "invalid_request", message)
 }
 
-// pub fn insufficient_scope(message: &str) -> Response {
-//   error(StatusCode::FORBIDDEN, "insufficient_scope", message)
-// }
+pub fn insufficient_scope(message: &str) -> Response {
+  error(StatusCode::FORBIDDEN, "insufficient_scope", message)
+}
 
 pub fn system_error(message: &str) -> Response {
   error(StatusCode::INTERNAL_SERVER_ERROR, "system_error", message)

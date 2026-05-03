@@ -1,6 +1,6 @@
 use axum::{Router, middleware, routing::get};
 use ::config::{Config, Environment, File};
-use tokio::{net::TcpListener, sync::{mpsc, oneshot}};
+use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
 use scribble::{AppState, config::ScribbleConfig, git, micropub};
 use tracing::{debug, error, info};

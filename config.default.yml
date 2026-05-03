@@ -22,7 +22,7 @@ micropub:
     # {slug} - the slug of the item (derived from mp-slug, or auto-generated uuid)
     #
     # Note: May optionally end with ".json" as a file extension. This is the only
-    # valid file extension, or you may use no file extension as all.
+    # valid file extension, or you may use no file extension at all.
     path_pattern: "{year}/{month}/{day}/{slug}.json"
     git:
       repository: git@github.com:my-username/my-scribble-content

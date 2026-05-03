@@ -2,13 +2,17 @@ use std::{path::Path, sync::Arc};
 
 use async_tempfile::TempDir;
 use git2::{Cred, CredentialType, Oid, Remote, RemoteCallbacks};
+use thiserror::Error;
 
 use crate::AppState;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CloneError {
-  Git2(git2::Error),
-  TempDir(async_tempfile::Error)
+  #[error("git operation failed during clone: {0}")]
+  Git2(#[from] git2::Error),
+  
+  #[error("tempfile operation failed during clone: {0}")]
+  TempDir(#[from] async_tempfile::Error)
 }
 
 /// Provides Git remote callbacks for authentication.

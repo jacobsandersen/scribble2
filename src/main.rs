@@ -2,7 +2,7 @@ use axum::{Router, middleware, routing::get};
 use ::config::{Config, Environment, File};
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
-use scribble::{AppState, config::ScribbleConfig, git, micropub};
+use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}};
 use tracing::{debug, error, info};
 use validator::Validate;
 use std::{error::Error, process::exit, sync::Arc};
@@ -30,26 +30,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let binding = config.server.binding.to_string();
 
-  debug!("creating mpsc channel...");
-  let (tx, mut rx) = mpsc::channel(32);
+  debug!("creating job queue channel...");
+  let (job_tx, mut job_rx) = mpsc::channel::<JobFn>(256);
 
   debug!("creating app state...");
   let state = Arc::new(AppState {
     config,
     reqwest: reqwest::ClientBuilder::new().build()?,
-    writer_tx: tx
+    job_queue: Arc::new(JobQueue::new(job_tx))
+  });
+
+  debug!("starting job queue...");;
+  tokio::spawn(async move {
+    while let Some(job) = job_rx.recv().await {
+      if let Err(e) = job().await {
+        error!("job failed: {e}")
+      }
+    }
   });
 
   debug!("checking git connection...");
   git::try_connect_repo(&state)?;
-
-  debug!("starting writer job queue...");
-  tokio::spawn(async move {
-    while let Some(job) = rx.recv().await {
-      let result = micropub::storage::store_object(&job).await;
-      let _ = job.respond_to.send(result);
-    }
-  });
 
   debug!("setting up axum routes...");
   let micropub = Router::new()

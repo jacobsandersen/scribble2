@@ -1,5 +1,5 @@
 mod create;
-mod update;
+pub(in crate::micropub) mod update;
 mod delete;
 mod undelete;
 

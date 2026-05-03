@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{body::Body, response::Response};
 use reqwest::{StatusCode, header};
+use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::{
@@ -10,9 +11,8 @@ use crate::{
     microformats::Mf2Object,
     micropub::{
         error::{insufficient_scope, invalid_request, system_error},
-        post::MicropubBody
-    },
-    util,
+        post::MicropubBody, storage::job::create::CreateJob
+    }
 };
 
 pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response, Response> {
@@ -26,10 +26,26 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response
         .map_err(|e| invalid_request(&format!("failed to read mf2 object for creation: {e:?}")))?;
 
     debug!("submitting write job...");
-    let path = util::submit_write_job(&state, obj).await.map_err(|e| {
-        debug!("write job failure: {e}");
-        system_error("failed to write data")
+    let (tx, rx) = oneshot::channel();
+    state.job_queue.enqueue(CreateJob {
+      state: state.clone(),
+      payload: obj,
+      respond_to: tx
+    }).await.map_err(|_e| {
+      debug!("failed to enqueue write job");
+      system_error("write job submission failed")
     })?;
+
+    debug!("awaiting write job completion...");
+    let path = rx.await
+      .map_err(|e| {
+        debug!("failed to receive write job result: {e}");
+        system_error("unknown error awaiting write job completion")
+      })?
+      .map_err(|e| {
+        debug!("failed to create post: {e}");
+        system_error("failed to create post in backing storage")
+      })?;
 
     debug!("returning accepted response...");
     Ok(Response::builder()

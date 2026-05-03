@@ -7,6 +7,7 @@ pub mod micropub;
 pub mod config;
 pub mod microformats;
 pub mod git;
+pub mod util;
 
 pub struct AppState {
   pub config: ScribbleConfig,

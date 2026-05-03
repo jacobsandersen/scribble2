@@ -8,9 +8,22 @@ auth:
   validate_token_url: https://tokens.indieauth.com/token
 
 micropub:
-  public_url: https://example.org
+  # Public URL at which the content published by this micropub server
+  # can be viewed. Might not be the same as Scribble's URL! This must
+  # end with a trailing slash, as it will be combined with the completed
+  # path pattern.
+  public_url: https://example.org/
   storage:
-    path_pattern: /{year}/{month}/{day}/{slug}
+    # The path pattern used for creating a content permalink URL. Some
+    # variables will be automatically replaced upon creation, namely:
+    # {year} - the current year, four digits
+    # {month} - the current month, two digits zero-padded
+    # {day} - the current day, two digits zero-padded
+    # {slug} - the slug of the item (derived from mp-slug, or auto-generated uuid)
+    #
+    # Note: May optionally end with ".json" as a file extension. This is the only
+    # valid file extension, or you may use no file extension as all.
+    path_pattern: "{year}/{month}/{day}/{slug}.json"
     git:
       repository: git@github.com:my-username/my-scribble-content
       key_path: "~/.ssh/id_rsa"

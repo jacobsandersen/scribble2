@@ -1,21 +1,29 @@
-use std::{error::Error, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use async_tempfile::TempDir;
-use git2::{Cred, CredentialType, Remote, RemoteCallbacks};
-use tracing::debug;
+use git2::{Cred, CredentialType, Oid, Remote, RemoteCallbacks};
 
 use crate::AppState;
 
+#[derive(Debug)]
+pub enum CloneError {
+  Git2(git2::Error),
+  TempDir(async_tempfile::Error)
+}
+
+/// Provides Git remote callbacks for authentication.
+///
+/// For SSH authentication, will provide the path to the configured SSH private key. If none is found,
+/// this authentication will fail. If a specific username is configured for SSH, it will be used. Otherwise,
+/// this authentication will attempt to extract the username from the SSH url.
+/// 
+/// For HTTP(s) authentication, will provide the configured username and password. If none is found,
+/// this authentication will fail.
 pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
     let git = &state.config.micropub.storage.git;
 
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(|_url, username_from_url, r#type| {
-        debug!(
-            "git credential callback invoked with credential type {:?}",
-            r#type
-        );
-
         let username = git
             .username
             .as_deref()
@@ -48,10 +56,10 @@ pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
     callbacks
 }
 
-pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, TempDir), Box<dyn Error>> {
-    let location = TempDir::new().await?;
-
-    debug!("created tempdir: {location:?}");
+/// Clones the configured repository into a temporary directory.
+/// The directory will be deleted when the TempDir goes out of scope.
+pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, TempDir), CloneError> {
+    let location = TempDir::new().await.map_err(|e| CloneError::TempDir(e))?;
 
     let mut fo = git2::FetchOptions::new();
     fo.remote_callbacks(get_remote_callbacks(state));
@@ -59,23 +67,81 @@ pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, Temp
 
     let mut builder = git2::build::RepoBuilder::new();
     builder.fetch_options(fo);
+    
+    let repo = builder.clone(
+      &state.config.micropub.storage.git.repository, 
+      location.dir_path()
+    ).map_err(|e| CloneError::Git2(e))?;
 
-    debug!("cloning git repository");
-    Ok((builder.clone(&state.config.micropub.storage.git.repository, location.dir_path())?, location))
+    Ok((repo, location))
 }
 
+/// Adds a particular path to the repository index (i.e., stages the path for commit)
+pub fn add_path(repo: &git2::Repository, path: &str) -> Result<git2::Oid, git2::Error> {
+  let mut idx = repo.index()?;
+  idx.add_path(Path::new(&path))?;
+  idx.write()?;
+  idx.write_tree()
+}
+
+/// Commits a particular object ID (oid) to prepare for pushing. The Oid is
+/// returned from `add_path`.
+pub fn commit(repo: &git2::Repository, oid: Oid) -> Result<(), git2::Error> {
+  let tree = repo.find_tree(oid)?;
+
+  let parents = match repo.head() {
+    Ok(head) => vec![head.peel_to_commit()?],
+    Err(_) => vec![]
+  };
+
+  let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
+
+  let sig = git2::Signature::now("scribble", "scribble@indieweb")?;
+  let _ = repo.commit(
+    Some("HEAD"), 
+    &sig, 
+    &sig, 
+    "scribble: add new file", 
+    &tree,
+    &parent_refs
+  )?;
+
+  Ok(())
+}
+
+/// Adds a particular path to the repository index, and then immediately commits it.
+pub fn add_and_commit(repo: &git2::Repository, path: &str) -> Result<(), git2::Error> {
+  let oid = add_path(&repo, path)?;
+  commit(repo, oid)?;
+  Ok(())
+}
+
+/// Pushes a branch of the repository to its remote equivalent.
+pub fn push(state: &Arc<AppState>, repo: &git2::Repository, branch: &str) -> Result<(), git2::Error> {
+  let mut remote = repo.find_remote("origin")?;
+
+  let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+
+  let mut po = git2::PushOptions::new();
+  po.remote_callbacks(get_remote_callbacks(state));
+
+  remote.push(&[&refspec], Some(&mut po))?;
+
+  Ok(())
+}
+
+/// Attempts to connect to the configured repository, using the configured credentials.
+/// This is used as an initial healthcheck before finalizing startup.
 pub fn try_connect_repo(state: &Arc<AppState>) -> Result<(), git2::Error> {
-    debug!("creating detached remote");
     let mut rem = Remote::create_detached(state.config.micropub.storage.git.repository.clone())?;
-    debug!("connecting to remote");
+
     rem.connect_auth(
         git2::Direction::Fetch,
         Some(get_remote_callbacks(state)),
         None,
     )?;
-    debug!("disconnecting from remote");
+
     rem.disconnect()?;
 
-    debug!("git connection test ok");
     Ok(())
 }

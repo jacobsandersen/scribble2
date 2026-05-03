@@ -10,7 +10,7 @@ static RE_IPV4: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static RE_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-  Regex::new(r"^(\/(\{(year|month|day|slug)+\})+)+$").unwrap()
+  Regex::new(r"^(\{(year|month|day|slug)+\})(\/(\{(year|month|day|slug)+\})+)+(\.json)?$").unwrap()
 });
 
 #[derive(Debug, Validate, Deserialize)]
@@ -71,7 +71,7 @@ pub struct Auth {
 pub struct Micropub {
   /// The public URL where content published by this server is available.
   /// This value is combined with the path_pattern to create the content permalink.
-  #[validate(url)]
+  #[validate(url, custom(function = "has_trailing_slash"))]
   pub public_url: String,
 
   /// The storage information controlling how content is stored.
@@ -123,4 +123,12 @@ pub struct MicropubStorageGit {
 
   /// The branch to push to on the remote. If not specified, "main" is used.
   pub branch: Option<String>
+}
+
+fn has_trailing_slash(url: &str) -> Result<(), ValidationError> {
+  if !url.ends_with("/") {
+    return Err(ValidationError::new("missing_trailing_slash"));
+  }
+
+  Ok(())
 }

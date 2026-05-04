@@ -1,73 +1,79 @@
 pub mod job;
 
-use std::path::{Path, PathBuf};
 use async_tempfile::TempDir;
-use chrono::Datelike;
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use thiserror::Error;
 use tokio::{fs, io};
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::{microformats::{Mf2Object, Mf2Value}};
+use crate::{
+    microformats::Mf2Object,
+    path_pattern::PathPattern,
+};
 
 #[derive(Debug, Error)]
-pub enum WriteError {
-  #[error("serialization error during write: {0}")]
-  Serde(#[from] serde_json::Error),
+pub(in crate::micropub) enum WriteError {
+    #[error("serialization error during write: {0}")]
+    Serde(#[from] serde_json::Error),
 
-  #[error("io error during write: {0}")]
-  Io(#[from] io::Error)
+    #[error("io error during write: {0}")]
+    Io(#[from] io::Error),
 }
 
-fn build_content_path(payload: &Mf2Object, path_pattern: String, workdir: &TempDir) -> (String, PathBuf) {
-  let slug = if let Some(Mf2Value::String(slug)) = payload.first_prop("mp-slug") {
-    slug::slugify(slug)
-  } else {
-    uuid()
-  };
+fn create_content_path(
+    slug: Option<String>,
+    path_pattern: &PathPattern,
+    workdir: &TempDir,
+) -> (String, String, PathBuf) {
+    let slug = if let Some(slug) = slug {
+      slug::slugify(slug)
+    } else {
+      uuid()
+    };
 
-  let mut path = create_path_from_pattern(&path_pattern, &slug);
-  let mut abs_path = workdir.join(&path);
+    let mut ctx = path_pattern.new_context(&slug);
 
-  while abs_path.exists() {
-    path = create_path_from_pattern(&path_pattern, &format!("{slug}-{}", uuid()));
-    abs_path = workdir.join(&path);
-  } 
-
-  (path, abs_path)
+    build_content_path(slug, path_pattern, workdir, &mut ctx)
 }
 
-fn create_path_from_pattern(pattern: &str, slug: &str) -> String {
-  let now = chrono::Utc::now();
-  let year = format!("{}", now.year());
-  let month = format!("{:02}", now.month());
-  let day = format!("{:02}", now.day());
+fn build_content_path(
+  slug: String,
+  path_pattern: &PathPattern,
+  workdir: &TempDir,
+  ctx: &mut HashMap<&str, String>
+) -> (String, String, PathBuf) {
+    let mut path = path_pattern.resolve(&ctx);
+    let mut abs_path = workdir.join(&path);
 
-  pattern
-    .replace("{year}", year.as_str())
-    .replace("{month}", month.as_str())
-    .replace("{day}", day.as_str())
-    .replace("{slug}", slug)
+    while abs_path.exists() {
+        ctx.insert("slug", format!("{slug}-{}", uuid()));
+        path = path_pattern.resolve(&ctx);
+        abs_path = workdir.join(&path);
+    }
+
+    (slug, path, abs_path)
 }
 
 async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), WriteError> {
-  debug!("serializing payload...");
-  let payload_json = serde_json::to_string_pretty(&payload)
-    .map_err(|e| WriteError::Serde(e))?;
+    debug!("serializing payload...");
+    let payload_json = serde_json::to_string_pretty(&payload).map_err(|e| WriteError::Serde(e))?;
 
-  debug!("writing payload to file...");
-  let parent_paths = path.parent().unwrap_or(Path::new(""));
+    debug!("writing payload to file...");
+    let parent_paths = path.parent().unwrap_or(Path::new(""));
 
-  fs::create_dir_all(parent_paths).await
-    .map_err(|e| WriteError::Io(e))?;
+    fs::create_dir_all(parent_paths)
+        .await
+        .map_err(|e| WriteError::Io(e))?;
 
-  fs::write(path, payload_json).await
-    .map_err(|e| WriteError::Io(e))?;
+    fs::write(path, payload_json)
+        .await
+        .map_err(|e| WriteError::Io(e))?;
 
-  Ok(())
+    Ok(())
 }
 
 fn uuid() -> String {
-  Uuid::new_v4().as_hyphenated().to_string()
+    Uuid::new_v4().as_hyphenated().to_string()
 }

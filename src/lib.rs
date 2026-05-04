@@ -1,15 +1,21 @@
 use std::sync::Arc;
 
-use crate::{config::ScribbleConfig, micropub::storage::job::JobQueue};
+use crate::{config::ScribbleConfig, micropub::storage::job::JobQueue, path_pattern::PathPattern};
 
-pub mod indieauth;
-pub mod micropub;
 pub mod config;
-pub mod microformats;
 pub mod git;
+pub mod indieauth;
+pub mod microformats;
+pub mod micropub;
+pub mod path_pattern;
 
 pub struct AppState {
-  pub config: ScribbleConfig,
-  pub reqwest: reqwest::Client,
-  pub job_queue: Arc<JobQueue>
+    pub config: ScribbleConfig,
+    pub path_pattern: PathPattern,
+    pub reqwest: reqwest::Client,
+    pub job_queue: Arc<JobQueue>,
+}
+
+pub trait MapToResponse {
+  fn map_to_response(self) -> axum::response::Response;
 }

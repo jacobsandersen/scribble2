@@ -116,6 +116,38 @@ impl Mf2Object {
       .and_then(|v| v.first().cloned())
   }
 
+  pub fn first_string_prop(&self, prop: &str) -> Option<String> {
+    if let Some(Mf2Value::String(value)) = self.first_prop(prop) {
+      Some(value)
+    } else {
+      None
+    }
+  }
+
+  pub fn add_props(&mut self, key: String, props: Vec<Mf2Value>) {
+    let entry = self.properties.entry(key).or_insert_with(Vec::new);
+    for prop in props {
+      if !entry.contains(&prop) {
+        entry.push(prop);
+      }
+    }
+  }
+
+  pub fn set_props(&mut self, key: String, props: Vec<Mf2Value>) {
+    self.properties.insert(key, props);
+  }
+
+  pub fn delete_prop(&mut self, key: String) {
+    self.properties.remove(&key);
+  }
+
+  pub fn delete_prop_values(&mut self, key: String, values: Vec<Mf2Value>) {
+    let entry = self.properties.get_mut(&key);
+    if let Some(entry) = entry {
+      entry.retain(|v| !values.contains(v));
+    }
+  }
+
   /// This function converts a `HashMap<String, Vec<String>>` (form data) payload into an `Mf2Object`.
   /// 
   /// Note: If the form data does not contain an `h` property, or if the `h` property is empty,

@@ -22,6 +22,10 @@ pub fn system_error(message: &str) -> Response {
   error(StatusCode::INTERNAL_SERVER_ERROR, "system_error", message)
 }
 
+pub fn not_found(message: &str) -> Response {
+  error(StatusCode::NOT_FOUND, "not_found", message)
+}
+
 fn error(status: StatusCode, error: &str, message: &str) -> Response {
   (status, Json(json!({
     "error": error,

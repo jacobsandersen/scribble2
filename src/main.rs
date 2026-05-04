@@ -2,7 +2,7 @@ use axum::{Router, middleware, routing::get};
 use ::config::{Config, Environment, File};
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
-use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}};
+use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}, path_pattern::PathPattern};
 use tracing::{debug, error, info};
 use validator::Validate;
 use std::{error::Error, process::exit, sync::Arc};
@@ -34,13 +34,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let (job_tx, mut job_rx) = mpsc::channel::<JobFn>(256);
 
   debug!("creating app state...");
+  let path_pattern = PathPattern::new(&config.micropub.storage.path_pattern)?;
   let state = Arc::new(AppState {
     config,
+    path_pattern,
     reqwest: reqwest::ClientBuilder::new().build()?,
     job_queue: Arc::new(JobQueue::new(job_tx))
   });
 
-  debug!("starting job queue...");;
+  debug!("starting job queue...");
   tokio::spawn(async move {
     while let Some(job) = job_rx.recv().await {
       if let Err(e) = job().await {

@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc};
 
 use async_tempfile::TempDir;
-use git2::{Cred, CredentialType, Oid, Remote, RemoteCallbacks};
+use git2::{Cred, CredentialType, IndexAddOption, Oid, Remote, RemoteCallbacks};
 use thiserror::Error;
 
 use crate::AppState;
@@ -88,9 +88,17 @@ pub fn add_path(repo: &git2::Repository, path: &str) -> Result<git2::Oid, git2::
   idx.write_tree()
 }
 
+// Adds all changes to the repository index (i.e., stages everything for commit)
+pub fn add_all(repo: &git2::Repository) -> Result<git2::Oid, git2::Error> {
+  let mut idx = repo.index()?;
+  idx.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
+  idx.write()?;
+  idx.write_tree()
+}
+
 /// Commits a particular object ID (oid) to prepare for pushing. The Oid is
 /// returned from `add_path`.
-pub fn commit(repo: &git2::Repository, oid: Oid) -> Result<(), git2::Error> {
+pub fn commit(repo: &git2::Repository, oid: Oid, message: &str) -> Result<(), git2::Error> {
   let tree = repo.find_tree(oid)?;
 
   let parents = match repo.head() {
@@ -105,7 +113,7 @@ pub fn commit(repo: &git2::Repository, oid: Oid) -> Result<(), git2::Error> {
     Some("HEAD"), 
     &sig, 
     &sig, 
-    "scribble: add new file", 
+    &format!("scribble: {}", message), 
     &tree,
     &parent_refs
   )?;
@@ -114,11 +122,18 @@ pub fn commit(repo: &git2::Repository, oid: Oid) -> Result<(), git2::Error> {
 }
 
 /// Adds a particular path to the repository index, and then immediately commits it.
-pub fn add_and_commit(repo: &git2::Repository, path: &str) -> Result<(), git2::Error> {
+pub fn add_and_commit(repo: &git2::Repository, path: &str, message: &str) -> Result<(), git2::Error> {
   let oid = add_path(&repo, path)?;
-  commit(repo, oid)?;
+  commit(repo, oid, message)?;
   Ok(())
 }
+
+// Adds all changes to the repository index, and then immediately commits them.
+pub fn add_all_and_commit(repo: &git2::Repository, message: &str) -> Result<(), git2::Error> {
+  let oid = add_all(repo)?;
+  commit(repo, oid, message)?;
+  Ok(())
+} 
 
 /// Pushes a branch of the repository to its remote equivalent.
 pub fn push(state: &Arc<AppState>, repo: &git2::Repository, branch: &str) -> Result<(), git2::Error> {

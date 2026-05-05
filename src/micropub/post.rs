@@ -1,7 +1,6 @@
-mod create;
+pub(in crate::micropub) mod create;
 pub(in crate::micropub) mod update;
-mod delete;
-mod undelete;
+pub(in crate::micropub) mod delete;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -14,7 +13,7 @@ use serde_json::Value;
 use tracing::debug;
 use tokio::io::AsyncWriteExt;
 
-use crate::{AppState, indieauth::{self, TokenInfo}, micropub::error::{self, forbidden, invalid_request, system_error, unauthorized}};
+use crate::{AppState, indieauth::{self, TokenInfo}, micropub::{error::{self, forbidden, invalid_request, system_error, unauthorized}, post::delete::DeletionMode}};
 
 /// MicropubBody represents an intermediate Micropub payload before any
 /// particular request intent has been established. It contains the content-type
@@ -34,6 +33,30 @@ pub struct MicropubBody {
 pub enum MicropubPayload {
   Json(serde_json::Value),
   Form(HashMap<String, Vec<String>>)
+}
+
+impl MicropubPayload {
+  /// Helper method to extract a single value from a MicropubPayload
+  /// If there are multiple data items to extract, it is better to define
+  /// a struct and use try_from.
+  pub fn get_string(&self, key: &str) -> Option<String> {
+    match self {
+      MicropubPayload::Json(json) => {
+        if !json.is_object() {
+          return None;
+        }
+
+        json[key].as_str().map(|s| s.to_string())
+      },
+
+      MicropubPayload::Form(form) => {
+        form
+          .get(key)
+          .and_then(|v| v.first()
+          .map(|s| s.to_string()))
+      }
+    }
+  }
 }
 
 /// Uploaded file contains the (declared) name of an uploaded file and its temporary
@@ -100,8 +123,8 @@ pub async fn handle(State(state): State<Arc<AppState>>, token: Option<Extension<
   match action {
     Action::Create => create::handle(state, body).await,
     Action::Update => update::handle(state, body).await,
-    Action::Delete => delete::handle(state, body).await,
-    Action::Undelete => undelete::handle(state, body).await
+    Action::Delete => delete::handle(state, body, DeletionMode::Delete).await,
+    Action::Undelete => delete::handle(state, body, DeletionMode::Undelete).await
   }
 }
 

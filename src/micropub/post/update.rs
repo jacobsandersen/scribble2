@@ -98,28 +98,38 @@ impl UpdatePayload {
     }
 }
 
+impl TryFrom<MicropubPayload> for UpdatePayload {
+  type Error = Response;
+
+  fn try_from(value: MicropubPayload) -> Result<Self, Self::Error> {
+    match value {
+      MicropubPayload::Json(json) => {
+        Ok(serde_json::from_value::<UpdatePayload>(json).map_err(|e| {
+            debug!("failed to deserialize JSON to micropub update payload: {e:?}");
+            invalid_request("invalid micropub update payload")
+        })?)
+      },
+
+      MicropubPayload::Form(_) => {
+        Err(invalid_request("micropub update is defined for JSON bodies only"))
+      }
+    }
+  }
+}
+
 pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response, Response> {
     debug!("checking scope");
     if !body.token.scope().contains(&TokenScope::Update) {
         return Err(insufficient_scope("missing update scope"));
     }
 
-    debug!("converting raw payload to micropub update schema...");
-    let json = match body.payload {
-        MicropubPayload::Json(json) => json,
-        MicropubPayload::Form(_) => return Err(invalid_request("updates must use JSON")),
-    };
-
-    let payload = serde_json::from_value::<UpdatePayload>(json)
-        .map_err(|e| {
-            debug!("failed to deserialize JSON to micropub update payload: {e:?}");
-            invalid_request("invalid micropub update payload")
-        })?
-        .validate_payload()
-        .map_err(|e| {
-            debug!("micropub update payload validation failed: {e}");
-            invalid_request(&format!("invalid micropub update payload: {e}"))
-        })?;
+    debug!("converting micropub payload to update payload...");
+    let payload = UpdatePayload::try_from(body.payload)?
+      .validate_payload()
+      .map_err(|e| {
+        debug!("micropub update payload validation failed: {e}");
+        invalid_request(&e)
+      })?;
 
     debug!("waiting for update to complete...");
     let (job, rx) = UpdateJob::new(state.clone(), payload);

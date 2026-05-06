@@ -1,6 +1,7 @@
 pub(in crate::micropub) mod create;
 pub(in crate::micropub) mod update;
 pub(in crate::micropub) mod delete;
+pub(in crate::micropub) mod media;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -9,6 +10,7 @@ use axum::{Extension, body::{Body, Bytes}, extract::State, http::{HeaderMap, hea
 use http_body_util::BodyExt;
 use mime::Mime;
 use multer::Multipart;
+use reqwest::StatusCode;
 use serde_json::Value;
 use tracing::debug;
 use tokio::io::AsyncWriteExt;
@@ -63,8 +65,10 @@ impl MicropubPayload {
 /// location on disk while waiting to be saved elsewhere.
 /// 
 /// Note: TempFile cleans up any data on disk when it drops.
+#[derive(Debug)]
 pub struct UploadedFile {
-  pub name: String,
+  pub field_name: String,
+  pub filename: String,
   pub file: TempFile
 }
 
@@ -90,17 +94,8 @@ impl From<&str> for Action {
 }
 
 pub async fn handle(State(state): State<Arc<AppState>>, token: Option<Extension<TokenInfo>>, headers: HeaderMap, body: Body) -> Result<Response, Response> {
-  let content_type_mime = headers
-    .get(header::CONTENT_TYPE.as_str())
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("")
-    .parse::<mime::Mime>()
-    .map_err(|e| {
-      debug!("invalid content type \"{e:?}\"");
-      error::invalid_request("invalid content type")
-    })?;
-
-  let body = decode_body(&state, token, content_type_mime, body).await?;
+  let content_type = get_content_type(headers)?;
+  let body = decode_body(&state, token, content_type, body).await?;
 
   let action = match &body.payload {
     MicropubPayload::Json(json) => {
@@ -128,26 +123,52 @@ pub async fn handle(State(state): State<Arc<AppState>>, token: Option<Extension<
   }
 }
 
+pub async fn handle_media(State(state): State<Arc<AppState>>, token: Option<Extension<TokenInfo>>, headers: HeaderMap, body: Body) -> Result<Response, Response> {
+  let content_type = get_content_type(headers)?;
+  if content_type.essence_str() != "multipart/form-data" {
+    return Err(invalid_request("media endpoint only supports multipart/form-data content type"));
+  }
+
+  let body = decode_multipart(&state, token, content_type, body, Some(String::from("file"))).await?;
+  if body.files.is_empty() {
+    return Err(invalid_request("received media upload request with zero files (media endpoint accepts one file, in field named `file`)"));
+  }
+
+  let s3 = media::get_s3(&state).map_err(|e| {
+    debug!("failed to get s3: {e:?}");
+    system_error("failed to get s3 connection (bad credentials?)")
+  })?;
+
+  let url = media::persist_file(&state, &s3, &body.files[0]).await
+    .map_err(|e| {
+      debug!("file upload failed {e:?}");
+      system_error("failed to upload file")
+    })?;
+
+  Ok(Response::builder()
+      .status(StatusCode::CREATED)
+      .header(header::LOCATION, url)
+      .body(Body::empty())
+      .unwrap())
+}
+
+fn get_content_type(headers: HeaderMap) -> Result<Mime, Response> {
+  headers
+    .get(header::CONTENT_TYPE.as_str())
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("")
+    .parse::<mime::Mime>()
+    .map_err(|e| {
+      debug!("invalid content type \"{e:?}\"");
+      error::invalid_request("invalid content type")
+    })
+}
+
 async fn decode_body(state: &Arc<AppState>, token: Option<Extension<TokenInfo>>, content_type: Mime, body: Body) -> Result<MicropubBody, Response> {
   match content_type.essence_str() {
-    "application/json" => {
-      let token = token.ok_or_else(|| unauthorized("Bearer token is required when sending JSON requests"))?.0;
-      Ok(MicropubBody { 
-        payload: MicropubPayload::Json(decode_json(body).await?), 
-        files: Vec::new(),
-        token
-      })
-    }
-    "application/x-www-form-urlencoded" => {
-      let mut form = decode_form(body).await?;
-      let token = get_token_header_first(state, token, &mut form).await?;
-      Ok(MicropubBody { payload: MicropubPayload::Form(form), files: Vec::new(), token })
-    }
-    "multipart/form-data" => {
-      let (mut form, files) = decode_multipart(content_type, body).await?;
-      let token = get_token_header_first(state, token, &mut form).await?;
-      Ok(MicropubBody { payload: MicropubPayload::Form(form), files, token })
-    } 
+    "application/json" => Ok(decode_json(token, body).await?),
+    "application/x-www-form-urlencoded" => Ok(decode_form(state, token, body).await?),
+    "multipart/form-data" => Ok(decode_multipart(state, token, content_type, body, None).await?), 
     _ => {
       debug!("illegal content type \"{}\" for micropub POST", content_type);
       return Err(error::invalid_request("illegal content type for micropub POST"));
@@ -155,15 +176,25 @@ async fn decode_body(state: &Arc<AppState>, token: Option<Extension<TokenInfo>>,
   }
 }
 
-async fn decode_json(body: Body) -> Result<serde_json::Value, Response> {
+async fn decode_json(token: Option<Extension<TokenInfo>>, body: Body) -> Result<MicropubBody, Response> {
+  let token = token
+    .ok_or_else(|| unauthorized("Bearer token is required when sending JSON requests"))?.0;
+
   let body = collect_body(body).await?;
-  serde_json::from_slice::<Value>(&body).map_err(|e| {
+
+  let json = serde_json::from_slice::<Value>(&body).map_err(|e| {
     debug!("failed to read JSON body: {e:?}");
     invalid_request("invalid JSON body")
+  })?;
+
+  Ok(MicropubBody { 
+    payload: MicropubPayload::Json(json), 
+    files: Vec::new(),
+    token
   })
 }
 
-async fn decode_form(body: Body) -> Result<HashMap<String, Vec<String>>, Response> {
+async fn decode_form(state: &Arc<AppState>, token: Option<Extension<TokenInfo>>, body: Body) -> Result<MicropubBody, Response> {
   let body  = collect_body(body).await?;
   let data: Vec<(String, String)> = serde_urlencoded::from_bytes(&body).map_err(|e| {
     debug!("failed to read form encoded body: {e:?}");
@@ -176,10 +207,11 @@ async fn decode_form(body: Body) -> Result<HashMap<String, Vec<String>>, Respons
     map.entry(key).or_insert_with(Vec::new).push(value);
   }
 
-  Ok(map)
+  let token = get_token_header_first(state, token, &mut map).await?;
+  Ok(MicropubBody { payload: MicropubPayload::Form(map), files: Vec::new(), token })
 }
 
-async fn decode_multipart(content_type: Mime, body: Body) -> Result<(HashMap<String, Vec<String>>, Vec<UploadedFile>), Response> {
+async fn decode_multipart(state: &Arc<AppState>, token: Option<Extension<TokenInfo>>, content_type: Mime, body: Body, field_name_filter: Option<String>) -> Result<MicropubBody, Response> {
   let body = body.into_data_stream();
   let boundary = multer::parse_boundary(content_type).map_err(|e| {
     debug!("failed to parse multipart boundary: {e:?}");
@@ -194,22 +226,29 @@ async fn decode_multipart(content_type: Mime, body: Body) -> Result<(HashMap<Str
     debug!("failed to read multipart field: {e:?}");
     system_error("error while reading multipart fields")
   })? {
+    let Some(field_name) = field.name().map(|s| s.to_string()) else { 
+      debug!("skipping nameless field in multipart body");
+      continue 
+    };
+
+    if let Some(ref field_name_filter) = field_name_filter {
+      if field_name_filter != &field_name {
+        debug!("skipping field: field name {field_name} did not match filter {field_name_filter}");
+        continue
+      }
+    }
+
     match field.file_name().map(|s| s.to_string()) {
       None => {
-        let Some(name) = field.name().map(|s| s.to_string()) else { 
-          debug!("skipping nameless field in multipart body");
-          continue 
-        };
-
         let Some(value) = field.text().await.ok() else { 
           debug!("skipping value-less field in multipart body");
           continue 
         };
 
-        map.entry(name).or_default().push(value);
+        map.entry(field_name).or_default().push(value);
       },
 
-      Some(name) => {
+      Some(filename) => {
         let mut file = TempFile::new()
           .await
           .map_err(|e| {
@@ -233,12 +272,13 @@ async fn decode_multipart(content_type: Mime, body: Body) -> Result<(HashMap<Str
           })?;
         }
 
-        files.push(UploadedFile { name, file });
+        files.push(UploadedFile { field_name, filename, file });
       }
     }
   }
 
-  Ok((map, files))
+  let token = get_token_header_first(state, token, &mut map).await?;
+  Ok(MicropubBody { payload: MicropubPayload::Form(map), files, token })
 }
 
 async fn collect_body(body: Body) -> Result<Bytes, Response> {

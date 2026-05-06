@@ -69,24 +69,59 @@ pub struct Auth {
 
 #[derive(Debug, Validate, Deserialize)]
 pub struct Micropub {
-  /// The public URL where content published by this server is available.
-  /// This value is combined with the path_pattern to create the content permalink.
-  #[validate(url, custom(function = "has_trailing_slash"))]
-  pub public_url: String,
+  /// The storage information controlling how media is stored.
+  #[validate(nested)]
+  pub media: MicropubMedia,
 
   /// The storage information controlling how content is stored.
   #[validate(nested)]
-  pub storage: MicropubStorage
+  pub content: MicropubContent
 }
 
-impl Micropub {
-  pub fn get_content_url(&self, path: &str) -> String {
+#[derive(Debug, Validate, Deserialize)]
+pub struct MicropubMedia {
+  /// The public URL where media uploaded by this server is available.
+  /// This value is combined with the object path (randomized) to create the media permalink.
+  #[validate(url, custom(function = "has_trailing_slash"))]
+  pub public_url: String,
+
+  /// The configuration for the s3 storage, where this server will upload any
+  /// media provided to it.
+  #[validate(nested)]
+  pub s3: MicropubMediaS3
+}
+
+impl MicropubMedia {
+  pub fn get_media_url(&self, path: &str) -> String {
     format!("{}{}", self.public_url, path)
   }
 }
 
 #[derive(Debug, Validate, Deserialize)]
-pub struct MicropubStorage {
+pub struct MicropubMediaS3 {
+  /// The access key id for S3
+  pub access_key_id: String,
+
+  /// The secret access key for S3
+  pub secret_access_key: String,
+
+  /// The region for S3 (i.e., ap-southeast-1)
+  pub region: Option<String>,
+
+  /// The bucket name in S3
+  pub bucket: String,
+
+  /// The S3 endpoint (allows using other S3 compatible services)
+  pub endpoint: String
+}
+
+#[derive(Debug, Validate, Deserialize)]
+pub struct MicropubContent {
+  /// The public URL where content published by this server is available.
+  /// This value is combined with the path_pattern to create the content permalink.
+  #[validate(url, custom(function = "has_trailing_slash"))]
+  pub public_url: String,
+
   /// The path pattern for content stored by this server.
   /// The content will then be available at {public_url}/{path_pattern}.
   /// The path pattern supports replacement of {year}, {month}, {day}, and
@@ -97,12 +132,17 @@ pub struct MicropubStorage {
   /// The configuration for git storage, where this server will upload any 
   /// content provided to it.
   #[validate(nested)]
-  pub git: MicropubStorageGit
+  pub git: MicropubContentGit
+}
+
+impl MicropubContent {
+  pub fn get_content_url(&self, path: &str) -> String {
+    format!("{}{}", self.public_url, path)
+  }
 }
 
 #[derive(Debug, Validate, Deserialize)]
-
-pub struct MicropubStorageGit {
+pub struct MicropubContentGit {
   /// The repository that this server will store its data.
   pub repository: String,
 

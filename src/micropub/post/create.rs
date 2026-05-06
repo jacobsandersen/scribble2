@@ -26,7 +26,7 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response
         .map_err(|e| invalid_request(&format!("failed to read mf2 object for creation: {e:?}")))?;
 
     debug!("waiting for creation to complete...");
-    let (job, rx) = CreateJob::new(state.clone(), obj);
+    let (job, rx) = CreateJob::new(state.clone(), body.files, obj);
     let path = state.job_queue.enqueue_and_wait(job, rx).await?;
 
     debug!("returning accepted response...");
@@ -34,7 +34,7 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response
         .status(StatusCode::ACCEPTED)
         .header(
             header::LOCATION,
-            state.config.micropub.get_content_url(&path),
+            state.config.micropub.content.get_content_url(&path),
         )
         .body(Body::empty())
         .unwrap())

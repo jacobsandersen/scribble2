@@ -8,12 +8,29 @@ auth:
   validate_token_url: https://tokens.indieauth.com/token
 
 micropub:
-  # Public URL at which the content published by this micropub server
-  # can be viewed. Might not be the same as Scribble's URL! This must
-  # end with a trailing slash, as it will be combined with the completed
-  # path pattern.
-  public_url: https://example.org/
-  storage:
+  media:
+    # Public URL at which the media uploaded by this micropub server
+    # can be viewed. This must end with a trailing slash, as it will
+    # be combined with the object key to complete the media permalink.
+    public_url: https://media.example.org/
+
+    # Configuration for the S3 (or S3-compatible) object store to use
+    # for uploading media (either files attached to a create request,
+    # or files uploaded through the media endpoint).
+    s3:
+      access_key_id: "replaceme"
+      secret_access_key: "replaceme"
+      region: ap-southeast-1
+      bucket: my-bucket
+      endpoint: https://s3.ap-southeast-1.amazonaws.com
+
+  content:
+    # Public URL at which the content published by this micropub server
+    # can be viewed. Might not be the same as Scribble's URL! This must
+    # end with a trailing slash, as it will be combined with the completed
+    # path pattern.
+    public_url: https://example.org/
+
     # The path pattern used for creating a content permalink URL. Some
     # variables will be automatically replaced upon creation, namely:
     # {year} - the current year, four digits
@@ -24,6 +41,14 @@ micropub:
     # Note: May optionally end with ".json" as a file extension. This is the only
     # valid file extension, or you may use no file extension at all.
     path_pattern: "{year}/{month}/{day}/{slug}.json"
+    
+    # Configuration for the git storage driven by this micropub server.
+    # This repository should be owned by Scribble! If you commit to this
+    # repository while Scribble is running, it may result in undefined behavior.
+    # When linking to your website repository, please use a submodule and set up
+    # a CI/CD job linking the content repository with the website repository.
+    # For example, when a push is detected on the content repository, trigger
+    # the website repository to sync submodules, rebuild, and then deploy.
     git:
       repository: git@github.com:my-username/my-scribble-content
       key_path: "~/.ssh/id_rsa"

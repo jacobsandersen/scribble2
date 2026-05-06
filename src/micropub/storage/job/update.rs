@@ -71,7 +71,7 @@ impl Job for UpdateJob {
                 let (repo, workdir) = git::clone_repo(&self.state).await?;
 
                 debug!("checking for existing content at path...");
-                let public_url = &self.state.config.micropub.public_url;
+                let public_url = &self.state.config.micropub.content.public_url;
                 let payload_url = &self.payload.url;
 
                 let path = self
@@ -119,7 +119,7 @@ impl Job for UpdateJob {
                     .state
                     .config
                     .micropub
-                    .storage
+                    .content
                     .git
                     .branch
                     .as_deref()

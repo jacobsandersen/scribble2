@@ -139,7 +139,7 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response
     let builder = if changed {
         Response::builder().status(StatusCode::CREATED).header(
             header::LOCATION,
-            state.config.micropub.get_content_url(&path),
+            state.config.micropub.content.get_content_url(&path),
         )
     } else {
         Response::builder().status(StatusCode::OK)

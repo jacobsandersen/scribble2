@@ -24,7 +24,7 @@ pub enum CloneError {
 /// For HTTP(s) authentication, will provide the configured username and password. If none is found,
 /// this authentication will fail.
 pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
-    let git = &state.config.micropub.storage.git;
+    let git = &state.config.micropub.content.git;
 
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(|_url, username_from_url, r#type| {
@@ -73,7 +73,7 @@ pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, Temp
     builder.fetch_options(fo);
     
     let repo = builder.clone(
-      &state.config.micropub.storage.git.repository, 
+      &state.config.micropub.content.git.repository, 
       location.dir_path()
     ).map_err(|e| CloneError::Git2(e))?;
 
@@ -152,7 +152,7 @@ pub fn push(state: &Arc<AppState>, repo: &git2::Repository, branch: &str) -> Res
 /// Attempts to connect to the configured repository, using the configured credentials.
 /// This is used as an initial healthcheck before finalizing startup.
 pub fn try_connect_repo(state: &Arc<AppState>) -> Result<(), git2::Error> {
-    let mut rem = Remote::create_detached(state.config.micropub.storage.git.repository.clone())?;
+    let mut rem = Remote::create_detached(state.config.micropub.content.git.repository.clone())?;
 
     rem.connect_auth(
         git2::Direction::Fetch,

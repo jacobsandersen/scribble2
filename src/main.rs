@@ -1,4 +1,4 @@
-use axum::{Router, middleware, routing::get};
+use axum::{Router, middleware, routing::{get, post}};
 use ::config::{Config, Environment, File};
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let (job_tx, mut job_rx) = mpsc::channel::<JobFn>(256);
 
   debug!("creating app state...");
-  let path_pattern = PathPattern::new(&config.micropub.storage.path_pattern)?;
+  let path_pattern = PathPattern::new(&config.micropub.content.path_pattern)?;
   let state = Arc::new(AppState {
     config,
     path_pattern,
@@ -57,6 +57,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   debug!("setting up axum routes...");
   let micropub = Router::new()
     .route("/", get(micropub::get::handle).post(micropub::post::handle))
+    .route("/media", post(micropub::post::handle_media))
     .layer(middleware::from_fn_with_state(state.clone(), micropub::auth::authorize));
 
   let app = Router::new()

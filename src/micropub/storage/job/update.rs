@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
-        error::{not_found, system_error}, post::update::{Deletion, UpdatePayload}, storage::{self, job::Job}
+        error::{not_found, system_error}, post::update::{Deletion, UpdatePayload}, storage::{self, StorageError, job::Job}
     }, path_pattern::PathPattern
 };
 
@@ -86,15 +86,10 @@ impl Job for UpdateJob {
                     UpdateError::NotFound(payload_url.clone())
                 })?;
 
-                let repo_path = workdir.join(&path);
-                if !repo_path.exists() {
-                    debug!("received valid url, but content did not exist on disk");
-                    return Err(UpdateError::NotFound(payload_url.to_string()));
-                }
 
                 debug!("patching content...");
-                let file_content = fs::read_to_string(&repo_path).await?;
-                let mut object: Mf2Object = serde_json::from_str(&file_content)?;
+                let repo_path = workdir.join(&path);
+                let mut object = storage::read_to_object(&repo_path).await?;
                 patch_object(self.payload, &mut object);
 
                 debug!("updating slug (if needed)...");
@@ -167,13 +162,13 @@ async fn update_slug_and_path(
     repo_path: PathBuf,
     workdir: &TempDir,
     path_pattern: &PathPattern,
-) -> Result<(String, PathBuf, bool), io::Error> {
+) -> Result<(String, PathBuf, bool), UpdateError> {
     let slug = parts.get("slug").unwrap().clone();
 
     if let Some(Mf2Value::String(new_slug)) = object.first_prop("mp-slug") {
         if new_slug != slug {
-            debug!("removing old file at {}...", repo_path.to_string_lossy());
-            fs::remove_file(&repo_path).await?;
+            debug!("deleting old file...");
+            storage::delete_file(&repo_path).await?;
 
             debug!("updating path...");
             let new_slug = slug::slugify(new_slug);

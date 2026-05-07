@@ -73,7 +73,7 @@ impl Job for CreateJob {
         storage::write_to_file(&self.payload, &abs_path).await?;
 
         debug!("committing file to git...");
-        git::add_and_commit(&repo, &path, &format!("add new post: {slug}"))?;
+        git::add_all_and_commit(&repo, &format!("add new post: {slug}"))?;
 
         debug!("pushing repository to remote...");
         let branch = &self.state.config.micropub.content.git.branch.as_deref().unwrap_or("main");

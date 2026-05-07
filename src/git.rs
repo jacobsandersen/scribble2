@@ -80,14 +80,6 @@ pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, Temp
     Ok((repo, location))
 }
 
-/// Adds a particular path to the repository index (i.e., stages the path for commit)
-pub fn add_path(repo: &git2::Repository, path: &str) -> Result<git2::Oid, git2::Error> {
-  let mut idx = repo.index()?;
-  idx.add_path(Path::new(&path))?;
-  idx.write()?;
-  idx.write_tree()
-}
-
 /// Adds all changes to the repository index (i.e., stages everything for commit)
 pub fn add_all(repo: &git2::Repository) -> Result<git2::Oid, git2::Error> {
   let mut idx = repo.index()?;
@@ -118,13 +110,6 @@ pub fn commit(repo: &git2::Repository, oid: Oid, message: &str) -> Result<(), gi
     &parent_refs
   )?;
 
-  Ok(())
-}
-
-/// Adds a particular path to the repository index, and then immediately commits it.
-pub fn add_and_commit(repo: &git2::Repository, path: &str, message: &str) -> Result<(), git2::Error> {
-  let oid = add_path(&repo, path)?;
-  commit(repo, oid, message)?;
   Ok(())
 }
 

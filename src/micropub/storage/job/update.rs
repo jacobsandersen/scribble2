@@ -31,7 +31,7 @@ pub(in crate::micropub) enum UpdateError {
     Serde(#[from] serde_json::Error),
 
     #[error("file write operation failed: {0}")]
-    Write(#[from] storage::WriteError),
+    Write(#[from] storage::StorageError),
 
     #[error("git operation failed: {0}")]
     Git2(#[from] git2::Error),

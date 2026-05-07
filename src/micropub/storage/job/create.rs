@@ -17,7 +17,7 @@ pub(in crate::micropub) enum CreateError {
   FileUpload(#[from] media::MediaError),
 
   #[error("file write operation failed: {0}")]
-  Write(#[from] storage::WriteError),
+  Write(#[from] storage::StorageError),
 
   #[error("git operation failed: {0}")]
   Git2(#[from] git2::Error)

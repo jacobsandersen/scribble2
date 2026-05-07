@@ -14,11 +14,11 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
-pub(in crate::micropub) enum WriteError {
-    #[error("serialization error during write: {0}")]
+pub(in crate::micropub) enum StorageError {
+    #[error("serialization error during storage operatoin: {0}")]
     Serde(#[from] serde_json::Error),
 
-    #[error("io error during write: {0}")]
+    #[error("io error during storage operation: {0}")]
     Io(#[from] io::Error),
 }
 
@@ -56,20 +56,20 @@ fn build_content_path(
     (slug, path, abs_path)
 }
 
-async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), WriteError> {
+async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), StorageError> {
     debug!("serializing payload...");
-    let payload_json = serde_json::to_string_pretty(&payload).map_err(|e| WriteError::Serde(e))?;
+    let payload_json = serde_json::to_string_pretty(&payload).map_err(|e| StorageError::Serde(e))?;
 
     debug!("writing payload to file...");
     let parent_paths = path.parent().unwrap_or(Path::new(""));
 
     fs::create_dir_all(parent_paths)
         .await
-        .map_err(|e| WriteError::Io(e))?;
+        .map_err(|e| StorageError::Io(e))?;
 
     fs::write(path, payload_json)
         .await
-        .map_err(|e| WriteError::Io(e))?;
+        .map_err(|e| StorageError::Io(e))?;
 
     Ok(())
 }

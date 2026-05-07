@@ -3,13 +3,13 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use async_tempfile::TempDir;
 use futures::future::BoxFuture;
 use thiserror::Error;
-use tokio::{fs, io, sync::oneshot::{self, Receiver}};
+use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
 use tracing::debug;
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
-        error::{not_found, system_error}, post::update::{Deletion, UpdatePayload}, storage::{self, StorageError, job::Job}
+        error::{not_found, system_error}, post::update::{Deletion, UpdatePayload}, storage::{self, job::Job}
     }, path_pattern::PathPattern
 };
 

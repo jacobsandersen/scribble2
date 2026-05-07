@@ -28,7 +28,8 @@ micropub:
     # Public URL at which the content published by this micropub server
     # can be viewed. Might not be the same as Scribble's URL! This must
     # end with a trailing slash, as it will be combined with the completed
-    # path pattern.
+    # path pattern. This is used to construct URLs returned by the micropub
+    # endpoint to a micropub client, so that the client knows where to redirect.
     public_url: https://example.org/
 
     # The path pattern used for creating a content permalink URL. Some
@@ -37,10 +38,7 @@ micropub:
     # {month} - the current month, two digits zero-padded
     # {day} - the current day, two digits zero-padded
     # {slug} - the slug of the item (derived from mp-slug, or auto-generated uuid)
-    #
-    # Note: May optionally end with ".json" as a file extension. This is the only
-    # valid file extension, or you may use no file extension at all.
-    path_pattern: "{year}/{month}/{day}/{slug}.json"
+    path_pattern: "{year}/{month}/{day}/{slug}"
     
     # Configuration for the git storage driven by this micropub server.
     # This repository should be owned by Scribble! If you commit to this

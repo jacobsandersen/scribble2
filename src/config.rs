@@ -10,7 +10,7 @@ static RE_IPV4: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static RE_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-  Regex::new(r"^(\{(year|month|day|slug)+\})(\/(\{(year|month|day|slug)+\})+)+(\.json)?$").unwrap()
+  Regex::new(r"^(\{(year|month|day|slug)\})(\/(\{(year|month|day|slug)\})+)*$").unwrap()
 });
 
 #[derive(Debug, Validate, Deserialize)]

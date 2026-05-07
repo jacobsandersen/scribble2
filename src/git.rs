@@ -88,7 +88,7 @@ pub fn add_path(repo: &git2::Repository, path: &str) -> Result<git2::Oid, git2::
   idx.write_tree()
 }
 
-// Adds all changes to the repository index (i.e., stages everything for commit)
+/// Adds all changes to the repository index (i.e., stages everything for commit)
 pub fn add_all(repo: &git2::Repository) -> Result<git2::Oid, git2::Error> {
   let mut idx = repo.index()?;
   idx.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
@@ -128,7 +128,7 @@ pub fn add_and_commit(repo: &git2::Repository, path: &str, message: &str) -> Res
   Ok(())
 }
 
-// Adds all changes to the repository index, and then immediately commits them.
+/// Adds all changes to the repository index, and then immediately commits them.
 pub fn add_all_and_commit(repo: &git2::Repository, message: &str) -> Result<(), git2::Error> {
   let oid = add_all(repo)?;
   commit(repo, oid, message)?;

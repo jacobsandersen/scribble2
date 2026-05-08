@@ -307,7 +307,7 @@ async fn extract_and_validate_token_from_form(state: &Arc<AppState>, form: &Hash
   let access_token = form.get("access_token")
     .and_then(|v| v.first())
     .map(|s| s.as_str())
-    .ok_or_else(|| forbidden("access_token parameter is required if not provided in header"))?;
+    .ok_or_else(|| unauthorized("access_token parameter is required if not provided in header"))?;
 
   indieauth::validate_token(&state, access_token)
     .await

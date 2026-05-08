@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   debug!("loading configuration...");
   let config: ScribbleConfig = Config::builder()
-    .add_source(File::with_name("config"))
+    .add_source(File::with_name("config").required(false))
     .add_source(Environment::default())
     .build()?
     .try_deserialize()?;

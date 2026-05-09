@@ -10,6 +10,7 @@ pub enum PatternError {
   MissingRequiredParam(String)
 }
 
+#[derive(Debug)]
 pub struct PathPattern {
   raw: String
 }

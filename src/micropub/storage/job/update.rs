@@ -5,7 +5,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
-use tracing::{Instrument, info};
+use tracing::{Instrument, info, info_span};
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
@@ -60,7 +60,7 @@ pub(in crate::micropub) struct UpdateJob {
 impl UpdateJob {
   pub fn new(state: Arc<AppState>, payload: UpdatePayload) -> (UpdateJob, Receiver<Result<(String, bool), UpdateError>>) {
     let (respond_to, rx) = oneshot::channel();
-    let span = tracing::Span::current();
+    let span = info_span!(parent: tracing::Span::current(), "update_job");
     (UpdateJob { state, payload, respond_to, span }, rx)
   }
 }

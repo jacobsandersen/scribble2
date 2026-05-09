@@ -200,6 +200,7 @@ fn get_content_type(headers: HeaderMap) -> Result<Mime, Response> {
         })
 }
 
+#[instrument(skip(state))]
 async fn decode_body(
     state: &Arc<AppState>,
     token: Option<Extension<TokenInfo>>,

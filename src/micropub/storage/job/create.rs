@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::{info, Instrument};
+use tracing::{Instrument, info, info_span};
 
 use crate::{AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{error::system_error, post::{UploadedFile, media}, storage::{self, job::Job}}};
 
@@ -40,7 +40,7 @@ pub(in crate::micropub) struct CreateJob {
 impl CreateJob {
   pub fn new(state: Arc<AppState>, files: Vec<UploadedFile>, payload: Mf2Object) -> (CreateJob, Receiver<Result<String, CreateError>>) {
     let (respond_to, rx) = oneshot::channel();
-    let span = tracing::Span::current();
+    let span = info_span!(parent: tracing::Span::current(), "create_job");
     (CreateJob { state, files, payload, respond_to, span }, rx)
   }
 }

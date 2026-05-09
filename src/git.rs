@@ -3,6 +3,7 @@ use std::{path::Path, sync::Arc};
 use async_tempfile::TempDir;
 use git2::{Cred, CredentialType, IndexAddOption, Oid, Remote, RemoteCallbacks};
 use thiserror::Error;
+use tracing::instrument;
 
 use crate::AppState;
 
@@ -62,6 +63,7 @@ pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
 
 /// Clones the configured repository into a temporary directory.
 /// The directory will be deleted when the TempDir goes out of scope.
+#[instrument(skip(state))]
 pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, TempDir), CloneError> {
     let location = TempDir::new().await.map_err(|e| CloneError::TempDir(e))?;
 
@@ -81,6 +83,7 @@ pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, Temp
 }
 
 /// Adds all changes to the repository index (i.e., stages everything for commit)
+#[instrument(skip(repo))]
 pub fn add_all(repo: &git2::Repository) -> Result<git2::Oid, git2::Error> {
   let mut idx = repo.index()?;
   idx.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
@@ -90,6 +93,7 @@ pub fn add_all(repo: &git2::Repository) -> Result<git2::Oid, git2::Error> {
 
 /// Commits a particular object ID (oid) to prepare for pushing. The Oid is
 /// returned from `add_path`.
+#[instrument(skip(repo))]
 pub fn commit(repo: &git2::Repository, oid: Oid, message: &str) -> Result<(), git2::Error> {
   let tree = repo.find_tree(oid)?;
 
@@ -114,6 +118,7 @@ pub fn commit(repo: &git2::Repository, oid: Oid, message: &str) -> Result<(), gi
 }
 
 /// Adds all changes to the repository index, and then immediately commits them.
+#[instrument(skip(repo))]
 pub fn add_all_and_commit(repo: &git2::Repository, message: &str) -> Result<(), git2::Error> {
   let oid = add_all(repo)?;
   commit(repo, oid, message)?;
@@ -121,6 +126,7 @@ pub fn add_all_and_commit(repo: &git2::Repository, message: &str) -> Result<(), 
 } 
 
 /// Pushes a branch of the repository to its remote equivalent.
+#[instrument(skip(state, repo))]
 pub fn push(state: &Arc<AppState>, repo: &git2::Repository, branch: &str) -> Result<(), git2::Error> {
   let mut remote = repo.find_remote("origin")?;
 

@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use thiserror::Error;
 use tokio::{fs, io};
-use tracing::info;
+use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -22,6 +22,7 @@ pub(in crate::micropub) enum StorageError {
     Io(#[from] io::Error),
 }
 
+#[instrument]
 fn create_content_path(
     slug: Option<String>,
     path_pattern: &PathPattern,
@@ -38,6 +39,7 @@ fn create_content_path(
     build_content_path(slug, path_pattern, workdir, &mut ctx)
 }
 
+#[instrument]
 fn build_content_path(
   slug: String,
   path_pattern: &PathPattern,
@@ -56,6 +58,7 @@ fn build_content_path(
     (slug, path, abs_path)
 }
 
+#[instrument]
 async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), StorageError> {
     info!("finalizing path...");
     let path = path.with_extension("json");
@@ -77,6 +80,7 @@ async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), Storag
     Ok(())
 }
 
+#[instrument]
 async fn read_to_object(path: &PathBuf) -> Result<Mf2Object, StorageError> {
   info!("finalizing path...");
   let path = path.with_extension("json");
@@ -88,6 +92,7 @@ async fn read_to_object(path: &PathBuf) -> Result<Mf2Object, StorageError> {
   Ok(serde_json::from_str::<Mf2Object>(&content)?)
 }
 
+#[instrument]
 async fn delete_file(path: &PathBuf) -> Result<(), StorageError> {
   info!("finalizing path...");
   let path = path.with_extension("json");

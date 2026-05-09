@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::{Instrument, info};
+use tracing::{Instrument, info, info_span};
 
 use crate::{
     AppState, MapToResponse,
@@ -53,7 +53,7 @@ impl SourceJob {
         url: String,
     ) -> (SourceJob, Receiver<Result<Mf2Object, SourceError>>) {
         let (respond_to, rx) = oneshot::channel();
-        let span = tracing::Span::current();
+        let span = info_span!(parent: tracing::Span::current(), "source_job");
         (
             SourceJob {
                 state,

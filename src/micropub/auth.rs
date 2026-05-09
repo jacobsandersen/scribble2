@@ -47,12 +47,14 @@ pub async fn authorize(
     Ok(next.run(request).await)
 }
 
+#[instrument(skip(state))]
 pub async fn validate_token_or_reject(state: &Arc<AppState>, token: &str) -> Result<TokenInfo, Response> {
   Ok(indieauth::validate_token(&state, token)
       .await
       .map_err(|e| unauthorized(&e))?)
 }
 
+#[instrument]
 fn extract_token_from_header(header: &HeaderValue) -> Result<&str, AuthError> {
     info!("attempting to extract token from authorization header");
 

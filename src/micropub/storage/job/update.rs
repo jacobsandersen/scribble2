@@ -5,7 +5,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
-use tracing::{info, instrument};
+use tracing::{Instrument, info};
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
@@ -66,12 +66,10 @@ impl UpdateJob {
 }
 
 impl Job for UpdateJob {
-    #[instrument(skip(self), fields(payload = ?self.payload))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
+            let span = self.span.clone();
             let run = async {
-                let _guard = self.span.enter();
-
                 info!("cloning content repository...");
                 let (repo, workdir) = git::clone_repo(&self.state).await?;
 
@@ -128,7 +126,7 @@ impl Job for UpdateJob {
                 git::push(&self.state, &repo, branch)?;
 
                 Ok((String::from(path), changed))
-            };
+            }.instrument(span);
 
             let _ = self.respond_to.send(run.await);
             Ok(())
@@ -188,7 +186,7 @@ async fn update_slug_and_path(
             );
 
             return Ok((path, repo_path, true));
-        }
+        };
     }
 
     Ok((path, repo_path, false))

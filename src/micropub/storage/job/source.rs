@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::{info, instrument};
+use tracing::{Instrument, info};
 
 use crate::{
     AppState, MapToResponse,
@@ -67,12 +67,10 @@ impl SourceJob {
 }
 
 impl Job for SourceJob {
-    #[instrument(skip(self), fields(url = ?self.url))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
+            let span = self.span.clone();
             let run = async {
-                let _guard = self.span.enter();
-
                 info!("cloning content repository...");
                 let (_, workdir) = git::clone_repo(&self.state).await?;
 
@@ -98,7 +96,7 @@ impl Job for SourceJob {
                 }
 
                 Ok(object)
-            };
+            }.instrument(span);
 
             let _ = self.respond_to.send(run.await);
             Ok(())

@@ -15,7 +15,7 @@ use serde_json::Value;
 use tracing::debug;
 use tokio::io::AsyncWriteExt;
 
-use crate::{AppState, indieauth::{self, TokenInfo}, micropub::{error::{self, forbidden, invalid_request, system_error, unauthorized}, post::delete::DeletionMode}};
+use crate::{AppState, indieauth::{self, TokenInfo}, micropub::{error::{self, invalid_request, system_error, unauthorized}, post::delete::DeletionMode}};
 
 /// MicropubBody represents an intermediate Micropub payload before any
 /// particular request intent has been established. It contains the content-type

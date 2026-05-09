@@ -2,7 +2,7 @@ use axum::{Router, middleware, routing::{get, post}};
 use ::config::{Config, Environment, File};
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
-use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}, path_pattern::PathPattern};
+use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}, path_pattern::PathPattern, telemetry};
 use tracing::{debug, error, info};
 use validator::Validate;
 use std::{error::Error, process::exit, sync::Arc};
@@ -29,6 +29,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   }
 
   let binding = config.server.binding.to_string();
+
+  debug!("setting up telemetry...");
+  let telemetry = telemetry::init_telemetry(&config.monitoring)?;
 
   debug!("creating job queue channel...");
   let (job_tx, mut job_rx) = mpsc::channel::<JobFn>(256);
@@ -81,5 +84,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let _ = axum::serve(listener, app).await;
 
+  info!("Scribble is shutting down");
+
+  if let Some((tracer, logger)) = telemetry {
+    info!("Shutting down tracer...");
+    let _ = tracer.shutdown();
+
+    info!("Shutting down logger...");
+    let _ = logger.shutdown();
+  }
+
+  info!("Goodbye!");
+  
   Ok(())
 }

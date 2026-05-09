@@ -4,6 +4,13 @@ server:
     ip: 0.0.0.0
     port: 9000
 
+monitoring:
+  # Set to true if you want to ship traces and logs to open telemetry
+  enable: false
+
+  # If enable = true, will ship traces and logs here. Must be a pre-configured OTel collector
+  otel_exporter_endpoint: http://otel-collector.monitoring.svc:4317
+
 auth:
   me_url: https://example.org
   validate_token_url: https://tokens.indieauth.com/token

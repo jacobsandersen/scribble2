@@ -8,6 +8,7 @@ pub mod indieauth;
 pub mod microformats;
 pub mod micropub;
 pub mod path_pattern;
+pub mod telemetry;
 
 pub struct AppState {
     pub config: ScribbleConfig,

@@ -26,7 +26,7 @@ use crate::{
     indieauth::TokenInfo,
     micropub::{
         auth,
-        error::{self, invalid_request, system_error, unauthorized},
+        error::{self, bad_request, invalid_request, system_error, unauthorized},
         post::delete::DeletionMode,
     },
 };
@@ -381,7 +381,7 @@ async fn get_token(
     form.remove("access_token");
 
     match (maybe_token, form_token) {
-        (Some(_), Some(_)) => Err(invalid_request(
+        (Some(Extension(_)), Some(_)) => Err(bad_request(
             "token must be provided in header or form, but not both",
         )),
         (Some(Extension(token)), None) => Ok(token),

@@ -14,6 +14,10 @@ pub fn invalid_request(message: &str) -> Response {
   error(StatusCode::BAD_REQUEST, "invalid_request", message)
 }
 
+pub fn bad_request(message: &str) -> Response {
+  error(StatusCode::BAD_REQUEST, "bad_request", message)
+}
+
 pub fn insufficient_scope(message: &str) -> Response {
   error(StatusCode::FORBIDDEN, "insufficient_scope", message)
 }

@@ -54,12 +54,14 @@ pub(in crate::micropub) struct UpdateJob {
     pub state: Arc<AppState>,
     pub payload: UpdatePayload,
     pub respond_to: oneshot::Sender<Result<(String, bool), UpdateError>>,
+    pub span: tracing::Span
 }
 
 impl UpdateJob {
   pub fn new(state: Arc<AppState>, payload: UpdatePayload) -> (UpdateJob, Receiver<Result<(String, bool), UpdateError>>) {
     let (respond_to, rx) = oneshot::channel();
-    (UpdateJob { state, payload, respond_to }, rx)
+    let span = tracing::Span::current();
+    (UpdateJob { state, payload, respond_to, span }, rx)
   }
 }
 
@@ -67,6 +69,8 @@ impl Job for UpdateJob {
     #[instrument(skip(self), fields(payload = ?self.payload))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
+            let _guard = self.span.enter();
+            
             let run = async {
                 info!("cloning content repository...");
                 let (repo, workdir) = git::clone_repo(&self.state).await?;

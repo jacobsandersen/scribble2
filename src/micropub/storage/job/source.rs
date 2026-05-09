@@ -44,6 +44,7 @@ pub(in crate::micropub) struct SourceJob {
     pub state: Arc<AppState>,
     pub url: String,
     pub respond_to: oneshot::Sender<Result<Mf2Object, SourceError>>,
+    pub span: tracing::Span
 }
 
 impl SourceJob {
@@ -52,11 +53,13 @@ impl SourceJob {
         url: String,
     ) -> (SourceJob, Receiver<Result<Mf2Object, SourceError>>) {
         let (respond_to, rx) = oneshot::channel();
+        let span = tracing::Span::current();
         (
             SourceJob {
                 state,
                 url,
                 respond_to,
+                span
             },
             rx,
         )
@@ -67,6 +70,8 @@ impl Job for SourceJob {
     #[instrument(skip(self), fields(url = ?self.url))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
+            let _guard = self.span.enter();
+            
             let run = async {
                 info!("cloning content repository...");
                 let (_, workdir) = git::clone_repo(&self.state).await?;

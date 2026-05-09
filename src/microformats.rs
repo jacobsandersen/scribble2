@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize, de::{self, Visitor}, ser::SerializeMap};
+use serde::{Deserialize, Serialize, de::Visitor};
 use serde_valid::Validate;
 use tracing::warn;
 
@@ -9,7 +9,7 @@ use crate::micropub::post::MicropubPayload;
 #[derive(Debug, PartialEq, Clone)] 
 pub enum Mf2Value {
   String(String),
-  Markup { value: String, html: String },
+  Embedded(serde_json::Value),
   Object(Mf2Object)
 }
 
@@ -22,11 +22,8 @@ impl Serialize for Mf2Value {
           str.serialize(serializer)
         },
 
-        Mf2Value::Markup { value, html } => {
-          let mut map = serializer.serialize_map(Some(2))?;
-          map.serialize_entry("value", value)?;
-          map.serialize_entry("html", html)?;
-          map.end()
+        Mf2Value::Embedded(obj) => {
+          obj.serialize(serializer)
         },
 
         Mf2Value::Object (obj) => {
@@ -54,20 +51,17 @@ impl<'de> Visitor<'de> for Mf2ValueVisitor {
   fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
     where A: serde::de::MapAccess<'de>, {
     
-    let mut value: Option<String> = None;
-    let mut html: Option<String> = None;
     let mut r#type: Option<Vec<String>> = None;
     let mut properties: Option<HashMap<String, Vec<Mf2Value>>> = None;
     let mut children: Option<Vec<Mf2Object>> = None;
+    let mut other: HashMap<String, serde_json::Value> = HashMap::new();
 
     while let Some(key) = map.next_key::<String>()? {
       match key.as_str() {
-        "value" => value = Some(map.next_value()?),
-        "html" => html = Some(map.next_value()?),
         "type" => r#type = Some(map.next_value()?),
         "properties" => properties = Some(map.next_value()?),
         "children" => children = Some(map.next_value()?),
-        _ => { map.next_value::<de::IgnoredAny>()?; }
+        _ => { other.insert(key, map.next_value()?); }
       }
     }
 
@@ -77,10 +71,10 @@ impl<'de> Visitor<'de> for Mf2ValueVisitor {
         properties, 
         children
       }))
-    } else if let (Some(value), Some(html)) = (value, html) {
-      Ok(Mf2Value::Markup { value, html })
     } else {
-      Err(de::Error::custom("unable to determine Mf2Value variant, neither Markup nor Object"))
+      Ok(Mf2Value::Embedded(serde_json::Value::Object(
+        other.into_iter().collect()
+      )))
     }
   }
 }
@@ -198,17 +192,6 @@ mod tests {
     let value = Mf2Value::String(String::from("test string"));
     let serialized_value = serde_json::to_value(&value).unwrap();
     let macro_value = json!("test string");
-    assert_eq!(serialized_value, macro_value);
-
-    let deserialized_value: Mf2Value = serde_json::from_value(macro_value).unwrap();
-    assert_eq!(deserialized_value, value);
-  }
-
-  #[test]
-  fn test_serde_value_markup() {
-    let value = Mf2Value::Markup { value: String::from("hello world!"), html: String::from("<p>hello world!</p>") };
-    let serialized_value = serde_json::to_value(&value).unwrap();
-    let macro_value = json!({ "value": "hello world!", "html": "<p>hello world!</p>" });
     assert_eq!(serialized_value, macro_value);
 
     let deserialized_value: Mf2Value = serde_json::from_value(macro_value).unwrap();

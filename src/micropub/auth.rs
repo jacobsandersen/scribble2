@@ -8,7 +8,7 @@ use axum::{
 };
 use tracing::debug;
 
-use crate::{AppState, indieauth, micropub::error::{self, unauthorized}};
+use crate::{AppState, indieauth::{self, TokenInfo}, micropub::error::{self, unauthorized}};
 
 #[derive(Debug)]
 enum AuthError {
@@ -37,17 +37,19 @@ pub async fn authorize(
             extract_token_from_header(header).map_err(|e| error::forbidden(&e.to_string()))?;
 
         debug!("extracted token value from header, validating with indieauth");
-
-        let info = indieauth::validate_token(&state, token)
-            .await
-            .map_err(|e| unauthorized(&e))?;
+        let info = validate_token_or_reject(&state, token).await?;
 
         debug!("saving token info to request");
-
         request.extensions_mut().insert(info);
     }
 
     Ok(next.run(request).await)
+}
+
+pub async fn validate_token_or_reject(state: &Arc<AppState>, token: &str) -> Result<TokenInfo, Response> {
+  Ok(indieauth::validate_token(&state, token)
+      .await
+      .map_err(|e| unauthorized(&e))?)
 }
 
 fn extract_token_from_header(header: &HeaderValue) -> Result<&str, AuthError> {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::Datelike;
 use thiserror::Error;
-use tracing::debug;
+use tracing::info;
 
 #[derive(Debug, Error)]
 pub enum PatternError {
@@ -60,7 +60,7 @@ impl PathPattern {
     let path_parts: Vec<&str> = path.split('/').collect();
 
     if pattern_parts.len() != path_parts.len() {
-      debug!("pattern_parts and path_parts are different lengths");
+      info!("pattern_parts and path_parts are different lengths");
       return None;
     }
 
@@ -73,7 +73,7 @@ impl PathPattern {
             "{slug}"  => { map.insert("slug", val.to_string()); }
             literal if literal == *val => {}
             x => {
-              debug!("unknown path var {x}, bailing");
+              info!("unknown path var {x}, bailing");
               return None;
             }
         }

@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{AppState, indieauth::{self, TokenInfo}, micropub::error::{self, unauthorized}};
 
@@ -27,6 +27,7 @@ impl Display for AuthError {
     }
 }
 
+#[instrument(skip(state))]
 pub async fn authorize(
     State(state): State<Arc<AppState>>,
     mut request: Request,
@@ -36,10 +37,10 @@ pub async fn authorize(
         let token =
             extract_token_from_header(header).map_err(|e| error::forbidden(&e.to_string()))?;
 
-        debug!("extracted token value from header, validating with indieauth");
+        info!("extracted token value from header, validating with indieauth");
         let info = validate_token_or_reject(&state, token).await?;
 
-        debug!("saving token info to request");
+        info!("saving token info to request");
         request.extensions_mut().insert(info);
     }
 
@@ -53,21 +54,21 @@ pub async fn validate_token_or_reject(state: &Arc<AppState>, token: &str) -> Res
 }
 
 fn extract_token_from_header(header: &HeaderValue) -> Result<&str, AuthError> {
-    debug!("attempting to extract token from authorization header");
+    info!("attempting to extract token from authorization header");
 
     let value = header.to_str().map_err(|e| {
-        debug!("failed to convert header to &str: {e:?}");
+        info!("failed to convert header to &str: {e:?}");
         AuthError::MalformedHeader
     })?;
 
     let parts: Vec<&str> = value.split(" ").collect();
     if parts.len() != 2 {
-        debug!("malformed authorization header (len != 2)");
+        info!("malformed authorization header (len != 2)");
         return Err(AuthError::MalformedHeader);
     }
 
     if parts[0].to_lowercase().trim() != "bearer" {
-        debug!("malformed authorization header (not Bearer)");
+        info!("malformed authorization header (not Bearer)");
         return Err(AuthError::HeaderNotBearer);
     }
 

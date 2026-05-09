@@ -3,16 +3,16 @@ use std::sync::Arc;
 use axum::{Json, extract::{FromRequest, Request, State}, response::{IntoResponse, Response}};
 use axum_extra::extract::Query;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{AppState, micropub::{error::invalid_request, storage::job::source::SourceJob}};
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct QueryBaseRequest {
   q: String
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct SourceRequest {
   url: String,
 
@@ -48,6 +48,7 @@ struct SyndicationTargetContext {
   photo: Option<String>
 }
 
+#[instrument(skip(state))]
 pub async fn handle(State(state): State<Arc<AppState>>, params: Query<QueryBaseRequest>, req: Request) -> Result<Response, Response> {
   match params.q.as_str() {
     "config" => handle_config(&state),
@@ -57,6 +58,7 @@ pub async fn handle(State(state): State<Arc<AppState>>, params: Query<QueryBaseR
   }
 }
 
+#[instrument(skip(state))]
 fn handle_config(state: &Arc<AppState>) -> Result<Response, Response> {
   let payload = MicropubConfigPayload {
     media_endpoint: format!("{}micropub/media", state.config.server.public_url),
@@ -66,6 +68,7 @@ fn handle_config(state: &Arc<AppState>) -> Result<Response, Response> {
   Ok(Json(payload).into_response())
 }
 
+#[instrument(skip(state))]
 async fn handle_source(state: &Arc<AppState>, req: Request) -> Result<Response, Response> {
   let Query(params) = Query::<SourceRequest>::from_request(req, state)
     .await
@@ -78,12 +81,12 @@ async fn handle_source(state: &Arc<AppState>, req: Request) -> Result<Response, 
     return Err(invalid_request("`url` parameter must contain a value"));
   }
 
-  debug!("waiting for source lookup to complete...");
+  info!("waiting for source lookup to complete...");
   let (job, rx) = SourceJob::new(state.clone(), url.to_string());
   let mut obj = state.job_queue.enqueue_and_wait(job, rx).await?;
 
   if !params.properties.is_empty() {
-    debug!("applying filters...");
+    info!("applying filters...");
     for (key, _) in obj.clone().properties {
       if !params.properties.contains(&key) {
         obj.delete_prop(key);
@@ -91,10 +94,11 @@ async fn handle_source(state: &Arc<AppState>, req: Request) -> Result<Response, 
     }
   }
 
-  debug!("returning source object...");
+  info!("returning source object...");
   Ok(Json(obj).into_response())
 }
 
+#[instrument(skip(_state))]
 fn handle_syndicate_to(_state: &Arc<AppState>) -> Result<Response, Response> {
   let payload = SyndicateToPayload { syndicate_to: Vec::new() };
   Ok(Json(payload).into_response())

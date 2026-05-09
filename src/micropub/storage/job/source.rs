@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{
     AppState, MapToResponse,
@@ -64,13 +64,14 @@ impl SourceJob {
 }
 
 impl Job for SourceJob {
+    #[instrument(skip(self), fields(url = ?self.url))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
             let run = async {
-                debug!("cloning content repository...");
+                info!("cloning content repository...");
                 let (_, workdir) = git::clone_repo(&self.state).await?;
 
-                debug!("checking for existing content at path...");
+                info!("checking for existing content at path...");
                 let public_url = &self.state.config.micropub.content.public_url;
                 let payload_url = &self.url;
 
@@ -80,13 +81,13 @@ impl Job for SourceJob {
                     .ok_or(SourceError::ForeignUrl(payload_url.to_string()))?
                     .to_string();
 
-                debug!("reading content...");
+                info!("reading content...");
                 let repo_path = workdir.join(&path);
                 let object = storage::read_to_object(&repo_path).await?;
 
                 if let Some(Mf2Value::Boolean(deleted)) = object.first_prop("deleted") {
                   if deleted {
-                    debug!("requested content is marked deleted, refusing to return source");
+                    info!("requested content is marked deleted, refusing to return source");
                     return Err(SourceError::NotFound)
                   }
                 }

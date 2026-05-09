@@ -4,6 +4,7 @@ use chrono::Datelike;
 use object_store::{ObjectStoreExt, PutPayload, aws::{AmazonS3, AmazonS3Builder}, path::Path};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
+use tracing::{info, instrument};
 
 use crate::{AppState, micropub::post::UploadedFile};
 
@@ -30,10 +31,12 @@ pub fn get_s3(state: &Arc<AppState>) -> Result<AmazonS3, MediaError> {
 }
 
 /// Uploads a media file to backing storage and returns its permalink
+#[instrument(skip(state))]
 pub async fn persist_file(state: &Arc<AppState>, s3: &AmazonS3, file: &UploadedFile) -> Result<String, MediaError> {
   let now = chrono::Utc::now();
   let object_key = Path::from(format!("{}/{:02}/{:02}/{}", now.year(), now.month(), now.day(), uuid::Uuid::new_v4().as_hyphenated().to_string()));
 
+  info!("reading file to buf");
   let mut buf = Vec::new();
   file.file
     .open_ro()
@@ -41,6 +44,7 @@ pub async fn persist_file(state: &Arc<AppState>, s3: &AmazonS3, file: &UploadedF
     .read_to_end(&mut buf)
     .await?;
 
+  info!("uploading buf to s3");
   let payload = PutPayload::from(buf);
   s3.put(&object_key, payload).await?;
 

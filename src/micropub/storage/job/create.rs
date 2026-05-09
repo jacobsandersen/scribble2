@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{error::system_error, post::{UploadedFile, media}, storage::{self, job::Job}}};
 
@@ -44,38 +44,39 @@ impl CreateJob {
 }
 
 impl Job for CreateJob {
+  #[instrument(skip(self), fields(files = ?self.files, payload = ?self.payload))]
   fn execute(mut self) -> BoxFuture<'static, Result<(), BoxError>> {
     Box::pin(async move {
       let run = async {
-        debug!("cloning content repository...");
+        info!("cloning content repository...");
         let (repo, workdir) = git::clone_repo(&self.state).await?;
 
-        debug!("creating content path...");
+        info!("creating content path...");
         let slug = self.payload.first_string_prop("mp-slug");
         let (slug, path, abs_path) = storage::create_content_path(slug, &self.state.path_pattern, &workdir);
 
-        debug!("persisting object slug...");
+        info!("persisting object slug...");
         self.payload.set_props(String::from("mp-slug"), vec![Mf2Value::String(slug.clone())]);
 
         if !self.files.is_empty() {
-          debug!("uploading files...");
+          info!("uploading files...");
           let s3 = media::get_s3(&self.state)?;
 
           for file in self.files {
-            debug!("...uploading {} to field {}", &file.filename, &file.field_name);
+            info!("...uploading {} to field {}", &file.filename, &file.field_name);
             let url = media::persist_file(&self.state, &s3, &file).await?;
             self.payload.add_props(file.field_name, vec![Mf2Value::String(url)]);
-            debug!("...ok");
+            info!("...ok");
           }
         }
 
-        debug!("writing content to file...");
+        info!("writing content to file...");
         storage::write_to_file(&self.payload, &abs_path).await?;
 
-        debug!("committing file to git...");
+        info!("committing file to git...");
         git::add_all_and_commit(&repo, &format!("add new post: {slug}"))?;
 
-        debug!("pushing repository to remote...");
+        info!("pushing repository to remote...");
         let branch = &self.state.config.micropub.content.git.branch.as_deref().unwrap_or("main");
         git::push(&self.state, &repo, branch)?;
 

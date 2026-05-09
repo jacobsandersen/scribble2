@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use thiserror::Error;
 use tokio::{fs, io};
-use tracing::debug;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::{
@@ -57,13 +57,13 @@ fn build_content_path(
 }
 
 async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), StorageError> {
-    debug!("finalizing path...");
+    info!("finalizing path...");
     let path = path.with_extension("json");
 
-    debug!("serializing payload...");
+    info!("serializing payload...");
     let payload_json = serde_json::to_string_pretty(&payload).map_err(|e| StorageError::Serde(e))?;
 
-    debug!("writing payload to file...");
+    info!("writing payload to file...");
     let parent_paths = path.parent().unwrap_or(Path::new(""));
 
     fs::create_dir_all(parent_paths)
@@ -78,21 +78,21 @@ async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), Storag
 }
 
 async fn read_to_object(path: &PathBuf) -> Result<Mf2Object, StorageError> {
-  debug!("finalizing path...");
+  info!("finalizing path...");
   let path = path.with_extension("json");
 
-  debug!("reading file to string...");
+  info!("reading file to string...");
   let content = fs::read_to_string(path).await?;
 
-  debug!("converting string to object...");
+  info!("converting string to object...");
   Ok(serde_json::from_str::<Mf2Object>(&content)?)
 }
 
 async fn delete_file(path: &PathBuf) -> Result<(), StorageError> {
-  debug!("finalizing path...");
+  info!("finalizing path...");
   let path = path.with_extension("json");
 
-  debug!("deleting file...");
+  info!("deleting file...");
   fs::remove_file(path).await?;
   
   Ok(())

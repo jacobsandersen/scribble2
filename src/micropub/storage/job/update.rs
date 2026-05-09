@@ -5,7 +5,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
@@ -64,13 +64,14 @@ impl UpdateJob {
 }
 
 impl Job for UpdateJob {
+    #[instrument(skip(self), fields(payload = ?self.payload))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
             let run = async {
-                debug!("cloning content repository...");
+                info!("cloning content repository...");
                 let (repo, workdir) = git::clone_repo(&self.state).await?;
 
-                debug!("checking for existing content at path...");
+                info!("checking for existing content at path...");
                 let public_url = &self.state.config.micropub.content.public_url;
                 let payload_url = &self.payload.url;
 
@@ -82,17 +83,17 @@ impl Job for UpdateJob {
                     .to_string();
 
                 let mut parts = self.state.path_pattern.extract(&path).ok_or_else(|| {
-                    debug!("received url with invalid path pattern (unable to extract)");
+                    info!("received url with invalid path pattern (unable to extract)");
                     UpdateError::NotFound(payload_url.clone())
                 })?;
 
 
-                debug!("patching content...");
+                info!("patching content...");
                 let repo_path = workdir.join(&path);
                 let mut object = storage::read_to_object(&repo_path).await?;
                 patch_object(self.payload, &mut object);
 
-                debug!("updating slug (if needed)...");
+                info!("updating slug (if needed)...");
                 let (path, repo_path, changed) = update_slug_and_path(
                     &mut parts,
                     &mut object,
@@ -103,13 +104,13 @@ impl Job for UpdateJob {
                 )
                 .await?;
 
-                debug!("saving patched content to file...");
+                info!("saving patched content to file...");
                 storage::write_to_file(&object, &repo_path).await?;
 
-                debug!("committing file to git...");
+                info!("committing file to git...");
                 git::add_all_and_commit(&repo, "update post")?;
 
-                debug!("pushing repository to remote...");
+                info!("pushing repository to remote...");
                 let branch = &self
                     .state
                     .config
@@ -167,15 +168,15 @@ async fn update_slug_and_path(
 
     if let Some(Mf2Value::String(new_slug)) = object.first_prop("mp-slug") {
         if new_slug != slug {
-            debug!("deleting old file...");
+            info!("deleting old file...");
             storage::delete_file(&repo_path).await?;
 
-            debug!("updating path...");
+            info!("updating path...");
             let new_slug = slug::slugify(new_slug);
             parts.insert("slug", new_slug.clone());
             let (slug, path, repo_path) =
                 storage::build_content_path(new_slug, path_pattern, &workdir, parts);
-            debug!("new path: {}", repo_path.to_string_lossy());
+            info!("new path: {}", repo_path.to_string_lossy());
 
             object.set_props(
                 String::from("mp-slug"),

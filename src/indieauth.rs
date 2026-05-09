@@ -1,10 +1,10 @@
 use reqwest::StatusCode;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::AppState;
 
-#[derive(Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TokenInfo {
     pub me: String,
     pub client_id: Option<String>,
@@ -57,6 +57,7 @@ impl TokenInfo {
 /// into a TokenInfo struct. Otherwise, we send back a String containing a more specific error message.
 /// With a valid TokenInfo, we compare the token's `me` claim to the instance's configured me_url. If
 /// these values do not match, the token is rejected. Otherwise, the token is accepted.
+#[instrument(skip(state))]
 pub async fn validate_token(state: &AppState, token: &str) -> Result<TokenInfo, String> {
   let token = validate_token_inner(state, token).await.map_err(|e| {
     format!("failed to validate token: {}", e)
@@ -85,7 +86,7 @@ async fn validate_token_inner(
         .form(&payload)
         .send()
         .await
-        .inspect_err(|e| debug!("error sending POST request for token validation: {e:#?}"))?;
+        .inspect_err(|e| info!("error sending POST request for token validation: {e:#?}"))?;
     
     if response.status() == StatusCode::OK {
       let maybe_info = response.json::<TokenInfo>().await;
@@ -94,7 +95,7 @@ async fn validate_token_inner(
       }
     }
 
-    debug!("modern token validation method failed, trying legacy token validation method as fallback");
+    info!("modern token validation method failed, trying legacy token validation method as fallback");
 
     // This is an old validation routine that is no longer standardized. We send a GET request to the token endpoint
     // with the token in the bearer auth header. IndieAuth works in this manner, despite this being nonstandard.
@@ -106,9 +107,9 @@ async fn validate_token_inner(
         .bearer_auth(token)
         .send()
         .await
-        .inspect_err(|e| debug!("error sending GET request for fallback token validation: {e:#?}"))?
+        .inspect_err(|e| info!("error sending GET request for fallback token validation: {e:#?}"))?
         .json::<TokenInfo>()
         .await
-        .inspect_err(|e| debug!("error deserializing fallback token validation response to TokenInfo: {e:#?}"))?
+        .inspect_err(|e| info!("error deserializing fallback token validation response to TokenInfo: {e:#?}"))?
     )
 }

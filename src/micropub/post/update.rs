@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{body::Body, response::Response};
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{
     AppState,
@@ -105,7 +105,7 @@ impl TryFrom<MicropubPayload> for UpdatePayload {
     match value {
       MicropubPayload::Json(json) => {
         Ok(serde_json::from_value::<UpdatePayload>(json).map_err(|e| {
-            debug!("failed to deserialize JSON to micropub update payload: {e:?}");
+            info!("failed to deserialize JSON to micropub update payload: {e:?}");
             invalid_request("invalid micropub update payload")
         })?)
       },
@@ -117,25 +117,26 @@ impl TryFrom<MicropubPayload> for UpdatePayload {
   }
 }
 
+#[instrument(skip(state))]
 pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response, Response> {
-    debug!("checking scope");
+    info!("checking scope");
     if !body.token.scope().contains(&TokenScope::Update) {
         return Err(insufficient_scope("missing update scope"));
     }
 
-    debug!("converting micropub payload to update payload...");
+    info!("converting micropub payload to update payload...");
     let payload = UpdatePayload::try_from(body.payload)?
       .validate_payload()
       .map_err(|e| {
-        debug!("micropub update payload validation failed: {e}");
+        info!("micropub update payload validation failed: {e}");
         invalid_request(&e)
       })?;
 
-    debug!("waiting for update to complete...");
+    info!("waiting for update to complete...");
     let (job, rx) = UpdateJob::new(state.clone(), payload);
     let (path, changed) = state.job_queue.enqueue_and_wait(job, rx).await?;
 
-    debug!("returning response...");
+    info!("returning response...");
     let builder = if changed {
         Response::builder().status(StatusCode::CREATED).header(
             header::LOCATION,

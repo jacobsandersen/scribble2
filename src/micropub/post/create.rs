@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{body::Body, response::Response};
 use reqwest::{StatusCode, header};
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{
     AppState,
@@ -15,21 +15,22 @@ use crate::{
     },
 };
 
+#[instrument(skip(state))]
 pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response, Response> {
-    debug!("checking scope");
+    info!("checking scope");
     if !body.token.scope().contains(&TokenScope::Create) {
         return Err(insufficient_scope("missing create scope"));
     }
 
-    debug!("converting payload to mf2...");
+    info!("converting payload to mf2...");
     let obj = Mf2Object::try_from(body.payload)
         .map_err(|e| invalid_request(&format!("failed to read mf2 object for creation: {e:?}")))?;
 
-    debug!("waiting for creation to complete...");
+    info!("waiting for creation to complete...");
     let (job, rx) = CreateJob::new(state.clone(), body.files, obj);
     let path = state.job_queue.enqueue_and_wait(job, rx).await?;
 
-    debug!("returning accepted response...");
+    info!("returning accepted response...");
     Ok(Response::builder()
         .status(StatusCode::ACCEPTED)
         .header(

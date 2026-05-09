@@ -19,7 +19,7 @@ use multer::Multipart;
 use reqwest::StatusCode;
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
-use tracing::debug;
+use tracing::{info, instrument};
 
 use crate::{
     AppState,
@@ -37,6 +37,7 @@ use crate::{
 /// been streamed to disk for later use, and the token which has been extracted
 /// from the headers (in middleware) or from the body (if form data), with
 /// header preference.
+#[derive(Debug)]
 pub struct MicropubBody {
     pub payload: MicropubPayload,
     pub files: Vec<UploadedFile>,
@@ -46,6 +47,7 @@ pub struct MicropubBody {
 /// MicropubPayload contains either the raw Json or Form data body of the Micropub
 /// request, which has not yet been converted to a stricter type (i.e. for creation
 /// or updating, etc).
+#[derive(Debug)]
 pub enum MicropubPayload {
     Json(serde_json::Value),
     Form(HashMap<String, Vec<String>>),
@@ -104,6 +106,7 @@ impl From<&str> for Action {
     }
 }
 
+#[tracing::instrument(skip(state))]
 pub async fn handle(
     State(state): State<Arc<AppState>>,
     token: Option<Extension<TokenInfo>>,
@@ -138,6 +141,7 @@ pub async fn handle(
     }
 }
 
+#[tracing::instrument(skip(state))]
 pub async fn handle_media(
     State(state): State<Arc<AppState>>,
     token: Option<Extension<TokenInfo>>,
@@ -166,14 +170,14 @@ pub async fn handle_media(
     }
 
     let s3 = media::get_s3(&state).map_err(|e| {
-        debug!("failed to get s3: {e:?}");
+        info!("failed to get s3: {e:?}");
         system_error("failed to get s3 connection (bad credentials?)")
     })?;
 
     let url = media::persist_file(&state, &s3, &body.files[0])
         .await
         .map_err(|e| {
-            debug!("file upload failed {e:?}");
+            info!("file upload failed {e:?}");
             system_error("failed to upload file")
         })?;
 
@@ -191,7 +195,7 @@ fn get_content_type(headers: HeaderMap) -> Result<Mime, Response> {
         .unwrap_or("")
         .parse::<mime::Mime>()
         .map_err(|e| {
-            debug!("invalid content type \"{e:?}\"");
+            info!("invalid content type \"{e:?}\"");
             error::invalid_request("invalid content type")
         })
 }
@@ -209,7 +213,7 @@ async fn decode_body(
             Ok(decode_multipart(state, token, content_type, body, None).await?)
         }
         _ => {
-            debug!(
+            info!(
                 "illegal content type \"{}\" for micropub POST",
                 content_type
             );
@@ -220,6 +224,7 @@ async fn decode_body(
     }
 }
 
+#[instrument]
 async fn decode_json(
     token: Option<Extension<TokenInfo>>,
     body: Body,
@@ -231,7 +236,7 @@ async fn decode_json(
     let body = collect_body(body).await?;
 
     let json = serde_json::from_slice::<Value>(&body).map_err(|e| {
-        debug!("failed to read JSON body: {e:?}");
+        info!("failed to read JSON body: {e:?}");
         invalid_request("invalid JSON body")
     })?;
 
@@ -242,6 +247,7 @@ async fn decode_json(
     })
 }
 
+#[instrument(skip(state))]
 async fn decode_form(
     state: &Arc<AppState>,
     token: Option<Extension<TokenInfo>>,
@@ -249,7 +255,7 @@ async fn decode_form(
 ) -> Result<MicropubBody, Response> {
     let body = collect_body(body).await?;
     let data: Vec<(String, String)> = serde_urlencoded::from_bytes(&body).map_err(|e| {
-        debug!("failed to read form encoded body: {e:?}");
+        info!("failed to read form encoded body: {e:?}");
         invalid_request("invalid form encoded body")
     })?;
 
@@ -267,6 +273,7 @@ async fn decode_form(
     })
 }
 
+#[instrument(skip(state))]
 async fn decode_multipart(
     state: &Arc<AppState>,
     token: Option<Extension<TokenInfo>>,
@@ -276,7 +283,7 @@ async fn decode_multipart(
 ) -> Result<MicropubBody, Response> {
     let body = body.into_data_stream();
     let boundary = multer::parse_boundary(content_type).map_err(|e| {
-        debug!("failed to parse multipart boundary: {e:?}");
+        info!("failed to parse multipart boundary: {e:?}");
         invalid_request("invalid multipart body; failed to parse multipart boundary")
     })?;
 
@@ -285,17 +292,17 @@ async fn decode_multipart(
 
     let mut multipart = Multipart::new(body, boundary);
     while let Some(mut field) = multipart.next_field().await.map_err(|e| {
-        debug!("failed to read multipart field: {e:?}");
+        info!("failed to read multipart field: {e:?}");
         system_error("error while reading multipart fields")
     })? {
         let Some(field_name) = field.name().map(|s| s.to_string()) else {
-            debug!("skipping nameless field in multipart body");
+            info!("skipping nameless field in multipart body");
             continue;
         };
 
         if let Some(ref field_name_filter) = field_name_filter {
             if field_name_filter != &field_name {
-                debug!(
+                info!(
                     "skipping field: field name {field_name} did not match filter {field_name_filter}"
                 );
                 continue;
@@ -305,7 +312,7 @@ async fn decode_multipart(
         match field.file_name().map(|s| s.to_string()) {
             None => {
                 let Some(value) = field.text().await.ok() else {
-                    debug!("skipping value-less field in multipart body");
+                    info!("skipping value-less field in multipart body");
                     continue;
                 };
 
@@ -316,7 +323,7 @@ async fn decode_multipart(
                 let mut file = TempFile::new()
                     .await
                     .map_err(|e| {
-                        debug!("failed to create tempfile to store streamed file: {e:?}");
+                        info!("failed to create tempfile to store streamed file: {e:?}");
                         system_error(
                             "failed to read multipart request; unable to create file on disk",
                         )
@@ -324,18 +331,18 @@ async fn decode_multipart(
                     .open_rw()
                     .await
                     .map_err(|e| {
-                        debug!("failed to open tempfile for writing: {e:?}");
+                        info!("failed to open tempfile for writing: {e:?}");
                         system_error(
                             "failed to read multipart request; unable to open file for writing",
                         )
                     })?;
 
                 while let Some(chunk) = field.chunk().await.map_err(|e| {
-                    debug!("failed to read multipart file chunk: {e:?}");
+                    info!("failed to read multipart file chunk: {e:?}");
                     system_error("error while reading multipart file chunk")
                 })? {
                     file.write_all(&chunk).await.map_err(|e| {
-                        debug!("failed to write multipart file chunk to disk: {e:?}");
+                        info!("failed to write multipart file chunk to disk: {e:?}");
                         system_error("failed to write multipart file chunk to disk")
                     })?;
                 }
@@ -362,7 +369,7 @@ async fn collect_body(body: Body) -> Result<Bytes, Response> {
         .collect()
         .await
         .map_err(|e| {
-            debug!("failed to collect Body to Bytes: {e:?}");
+            info!("failed to collect Body to Bytes: {e:?}");
             system_error("failed to collect request body")
         })?
         .to_bytes())

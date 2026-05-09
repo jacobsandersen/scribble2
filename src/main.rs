@@ -3,21 +3,21 @@ use ::config::{Config, Environment, File};
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
 use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}, path_pattern::PathPattern, telemetry};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use validator::Validate;
 use std::{error::Error, process::exit, sync::Arc};
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  debug!("loading configuration...");
+  info!("loading configuration...");
   let config: ScribbleConfig = Config::builder()
     .add_source(File::with_name("config").required(false))
     .add_source(Environment::default().separator("__"))
     .build()?
     .try_deserialize()?;
 
-  debug!("validating configuration...");
+  info!("validating configuration...");
   match config.validate() {
     Ok(_) => (),
     Err(e) => {
@@ -28,13 +28,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let binding = config.server.binding.to_string();
 
-  debug!("setting up telemetry...");
+  info!("setting up telemetry...");
   let telemetry = telemetry::init_telemetry(&config.monitoring)?;
 
-  debug!("creating job queue channel...");
+  info!("creating job queue channel...");
   let (job_tx, mut job_rx) = mpsc::channel::<JobFn>(256);
 
-  debug!("creating app state...");
+  info!("creating app state...");
   let path_pattern = PathPattern::new(&config.micropub.content.path_pattern)?;
   let state = Arc::new(AppState {
     config,
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     job_queue: Arc::new(JobQueue::new(job_tx))
   });
 
-  debug!("starting job queue...");
+  info!("starting job queue...");
   std::thread::spawn(move || {
     let runtime = tokio::runtime::Builder::new_current_thread()
       .enable_all()
@@ -59,10 +59,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
   });
   
-  debug!("checking git connection...");
+  info!("checking git connection...");
   git::try_connect_repo(&state)?;
 
-  debug!("setting up axum routes...");
+  info!("setting up axum routes...");
   let micropub = Router::new()
     .route("/", get(micropub::get::handle).post(micropub::post::handle))
     .route("/media", post(micropub::post::handle_media))
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .layer(TraceLayer::new_for_http())
     .with_state(state);
 
-  debug!("binding tcp listener...");
+  info!("binding tcp listener...");
   let listener = TcpListener::bind(&binding)
     .await
     .expect("Failed to bind TCP listener");

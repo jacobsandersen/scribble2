@@ -70,9 +70,9 @@ impl Job for SourceJob {
     #[instrument(skip(self), fields(url = ?self.url))]
     fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
         Box::pin(async move {
-            let _guard = self.span.enter();
-            
             let run = async {
+                let _guard = self.span.enter();
+
                 info!("cloning content repository...");
                 let (_, workdir) = git::clone_repo(&self.state).await?;
 

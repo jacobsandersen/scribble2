@@ -49,9 +49,10 @@ impl Job for CreateJob {
   #[instrument(skip(self), fields(files = ?self.files, payload = ?self.payload))]
   fn execute(mut self) -> BoxFuture<'static, Result<(), BoxError>> {
     Box::pin(async move {
-      let _guard = self.span.enter();
 
       let run = async {
+        let _guard = self.span.enter();
+        
         info!("cloning content repository...");
         let (repo, workdir) = git::clone_repo(&self.state).await?;
 

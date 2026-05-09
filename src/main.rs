@@ -10,8 +10,6 @@ use std::{error::Error, process::exit, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  tracing_subscriber::fmt::init();
-
   debug!("loading configuration...");
   let config: ScribbleConfig = Config::builder()
     .add_source(File::with_name("config").required(false))

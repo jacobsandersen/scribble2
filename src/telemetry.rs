@@ -40,6 +40,7 @@ fn init_logs(otel_endpoint: &str) -> anyhow::Result<SdkLoggerProvider> {
 
 pub fn init_telemetry(cfg: &Monitoring) -> anyhow::Result<Option<(SdkTracerProvider, SdkLoggerProvider)>> {
     if !cfg.enable {
+      tracing_subscriber::fmt::init();
       return Ok(None)
     }
 

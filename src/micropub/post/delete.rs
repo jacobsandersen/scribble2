@@ -43,14 +43,29 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody, mode: DeletionMode
     }
 
     debug!("building delegated update payload for delete/undelete...");
-    let mut replace = HashMap::new();
-    replace.insert("deleted".to_string(), vec![Mf2Value::String(format!("{}", mode == DeletionMode::Delete))]);
+    let payload = match mode {
+      DeletionMode::Delete => {
+        let mut replace = HashMap::new();
+        replace.insert("deleted".to_string(), vec![Mf2Value::Boolean(mode == DeletionMode::Delete)]);
 
-    let payload = UpdatePayload {
-      add: HashMap::new(),
-      replace,
-      delete: Deletion::Complete(Vec::new()),
-      url: url.unwrap()
+        UpdatePayload {
+          add: HashMap::new(),
+          replace,
+          delete: Deletion::Complete(Vec::new()),
+          url: url.unwrap()
+        }
+      },
+
+      DeletionMode::Undelete => {
+        let delete = Deletion::Complete(vec!["deleted".to_string()]);
+        
+        UpdatePayload {
+          add: HashMap::new(),
+          replace: HashMap::new(),
+          delete,
+          url: url.unwrap()
+        }
+      }
     };
 
     debug!("waiting for delegated update to complete...");

@@ -9,7 +9,7 @@ use tracing::debug;
 use crate::{
     AppState, MapToResponse,
     git::{self, CloneError},
-    microformats::Mf2Object,
+    microformats::{Mf2Object, Mf2Value},
     micropub::{
         error::{not_found, system_error},
         storage::{self, StorageError, job::Job},
@@ -84,8 +84,8 @@ impl Job for SourceJob {
                 let repo_path = workdir.join(&path);
                 let object = storage::read_to_object(&repo_path).await?;
 
-                if let Some(deleted) = object.first_string_prop("deleted") {
-                  if deleted == "true" {
+                if let Some(Mf2Value::Boolean(deleted)) = object.first_prop("deleted") {
+                  if deleted {
                     debug!("requested content is marked deleted, refusing to return source");
                     return Err(SourceError::NotFound)
                   }

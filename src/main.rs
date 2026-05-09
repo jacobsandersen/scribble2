@@ -43,14 +43,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
   });
 
   debug!("starting job queue...");
-  tokio::spawn(async move {
-    while let Some(job) = job_rx.recv().await {
-      if let Err(e) = job().await {
-        error!("job failed: {e}")
-      }
-    }
-  });
+  std::thread::spawn(move || {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap();
 
+    runtime.block_on(async move {
+      while let Some(job) = job_rx.recv().await {
+        if let Err(e) = job().await {
+          error!("job failed: {e}")
+        }
+      }
+    });
+  });
+  
   debug!("checking git connection...");
   git::try_connect_repo(&state)?;
 

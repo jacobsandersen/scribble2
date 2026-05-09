@@ -1,4 +1,5 @@
 server:
+  public_url: https://scribble.example.org/
   binding:
     ip: 0.0.0.0
     port: 9000

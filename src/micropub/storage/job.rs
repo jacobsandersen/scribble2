@@ -1,5 +1,6 @@
 pub(in crate::micropub) mod create;
 pub(in crate::micropub) mod update;
+pub(in crate::micropub) mod source;
 
 use axum::{response::Response};
 use futures::future::BoxFuture;

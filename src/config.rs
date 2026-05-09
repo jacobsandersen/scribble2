@@ -31,6 +31,9 @@ pub struct ScribbleConfig {
 
 #[derive(Debug, Validate, Deserialize)]
 pub struct Server {
+  #[validate(url, custom(function = "has_trailing_slash"))]
+  pub public_url: String,
+
   /// The ip/port pair to bind the http server to
   #[validate(nested)]
   pub binding: Binding

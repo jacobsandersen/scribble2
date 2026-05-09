@@ -59,7 +59,7 @@ pub async fn handle(State(state): State<Arc<AppState>>, params: Query<QueryBaseR
 
 fn handle_config(state: &Arc<AppState>) -> Result<Response, Response> {
   let payload = MicropubConfigPayload {
-    media_endpoint: format!("{}media", state.config.server.public_url),
+    media_endpoint: format!("{}micropub/media", state.config.server.public_url),
     syndicate_to: Vec::new()
   };
 

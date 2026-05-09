@@ -11,7 +11,7 @@ use crate::{
     git::{self, CloneError},
     microformats::Mf2Object,
     micropub::{
-        error::system_error,
+        error::{not_found, system_error},
         storage::{self, StorageError, job::Job},
     },
 };
@@ -26,11 +26,17 @@ pub(in crate::micropub) enum SourceError {
 
     #[error("storage operation failed: {0}")]
     Storage(#[from] StorageError),
+
+    #[error("request content was not found")]
+    NotFound
 }
 
 impl MapToResponse for SourceError {
     fn map_to_response(self) -> axum::response::Response {
-        system_error(&format!("failed to source post: {self}"))
+        match self {
+          Self::NotFound => not_found(&format!("{self}")),
+          _ => system_error(&format!("failed to source post: {self}"))
+        }
     }
 }
 
@@ -77,6 +83,13 @@ impl Job for SourceJob {
                 debug!("reading content...");
                 let repo_path = workdir.join(&path);
                 let object = storage::read_to_object(&repo_path).await?;
+
+                if let Some(deleted) = object.first_string_prop("deleted") {
+                  if deleted == "true" {
+                    debug!("requested content is marked deleted, refusing to return source");
+                    return Err(SourceError::NotFound)
+                  }
+                }
 
                 Ok(object)
             };

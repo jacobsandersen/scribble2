@@ -58,7 +58,7 @@ impl Job for CreateJob {
         let (slug, path, abs_path) = storage::create_content_path(slug, &self.state.path_pattern, &workdir);
 
         info!("persisting object slug...");
-        self.payload.set_props(String::from("mp-slug"), vec![Mf2Value::String(slug.clone())]);
+        self.payload.set_props("mp-slug", vec![Mf2Value::String(slug.clone())]);
 
         if !self.files.is_empty() {
           info!("uploading files...");
@@ -67,10 +67,15 @@ impl Job for CreateJob {
           for file in self.files {
             info!("...uploading {} to field {}", &file.filename, &file.field_name);
             let url = media::persist_file(&self.state, &s3, &file).await?;
-            self.payload.add_props(file.field_name, vec![Mf2Value::String(url)]);
+            self.payload.add_props(&file.field_name, vec![Mf2Value::String(url)]);
             info!("...ok");
           }
         }
+
+        info!("ensuring datetime fields...");
+        let now = Mf2Value::String(chrono::Local::now().to_rfc3339());
+        self.payload.set_prop_if_not_exists("published", now.clone());
+        self.payload.set_prop_if_not_exists("updated", now);
 
         info!("writing content to file...");
         storage::write_to_file(&self.payload, &abs_path).await?;

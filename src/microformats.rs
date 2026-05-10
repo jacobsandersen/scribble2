@@ -87,7 +87,7 @@ impl<'de> Visitor<'de> for Mf2ValueVisitor {
             match key.as_str() {
                 "type" => r#type = Some(map.next_value()?),
                 "properties" => properties = Some(map.next_value()?),
-                "children" => children = Some(map.next_value()?),
+                "children" => children = map.next_value::<Option<Vec<Mf2Object>>>()?,
                 _ => {
                     other.insert(key, map.next_value()?);
                 }
@@ -148,8 +148,16 @@ impl Mf2Object {
         }
     }
 
-    pub fn add_props(&mut self, key: String, props: Vec<Mf2Value>) {
-        let entry = self.properties.entry(key).or_insert_with(Vec::new);
+    pub fn has_at_least_one(&self, key: &str) -> bool {
+      self.properties.get(key).map(|v| v.len() >= 1).unwrap_or_default()
+    }
+
+    pub fn add_prop(&mut self, key: &str, prop: Mf2Value) {
+      self.add_props(key, vec![prop]);
+    }
+
+    pub fn add_props(&mut self, key: &str, props: Vec<Mf2Value>) {
+        let entry = self.properties.entry(key.to_string()).or_insert_with(Vec::new);
         for prop in props {
             if !entry.contains(&prop) {
                 entry.push(prop);
@@ -157,16 +165,26 @@ impl Mf2Object {
         }
     }
 
-    pub fn set_props(&mut self, key: String, props: Vec<Mf2Value>) {
-        self.properties.insert(key, props);
+    pub fn set_prop(&mut self, key: &str, prop: Mf2Value) {
+      self.set_props(key, vec![prop]);
     }
 
-    pub fn delete_prop(&mut self, key: String) {
-        self.properties.remove(&key);
+    pub fn set_props(&mut self, key: &str, props: Vec<Mf2Value>) {
+        self.properties.insert(key.to_string(), props);
     }
 
-    pub fn delete_prop_values(&mut self, key: String, values: Vec<Mf2Value>) {
-        let entry = self.properties.get_mut(&key);
+    pub fn set_prop_if_not_exists(&mut self, key: &str, prop: Mf2Value) {
+      if !self.has_at_least_one(key) {
+        self.set_prop(key, prop);
+      }
+    }
+
+    pub fn delete_prop(&mut self, key: &str) {
+      self.properties.remove(key);
+    }
+
+    pub fn delete_prop_values(&mut self, key: &str, values: Vec<Mf2Value>) {
+        let entry = self.properties.get_mut(key);
         if let Some(entry) = entry {
             entry.retain(|v| !values.contains(v));
         }

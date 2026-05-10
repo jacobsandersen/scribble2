@@ -89,7 +89,7 @@ async fn handle_source(state: &Arc<AppState>, req: Request) -> Result<Response, 
     info!("applying filters...");
     for (key, _) in obj.clone().properties {
       if !params.properties.contains(&key) {
-        obj.delete_prop(key);
+        obj.delete_prop(&key);
       }
     }
   }

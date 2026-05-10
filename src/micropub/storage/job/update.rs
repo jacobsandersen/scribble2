@@ -5,7 +5,7 @@ use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
-use tracing::{Instrument, info, info_span};
+use tracing::{Instrument, info, info_span, instrument, warn};
 
 use crate::{
     AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
@@ -34,7 +34,7 @@ pub(in crate::micropub) enum UpdateError {
     Storage(#[from] storage::StorageError),
 
     #[error("git operation failed: {0}")]
-    Git2(#[from] git2::Error),
+    Git2(#[from] git2::Error)
 }
 
 impl MapToResponse for UpdateError {
@@ -93,7 +93,7 @@ impl Job for UpdateJob {
                 info!("patching content...");
                 let repo_path = workdir.join(&path);
                 let mut object = storage::read_to_object(&repo_path).await?;
-                patch_object(self.payload, &mut object);
+                patch_object(self.payload, &mut object)?;
 
                 info!("updating slug (if needed)...");
                 let (path, repo_path, changed) = update_slug_and_path(
@@ -134,30 +134,37 @@ impl Job for UpdateJob {
     }
 }
 
-fn patch_object(payload: UpdatePayload, object: &mut Mf2Object) {
+#[instrument]
+fn patch_object(payload: UpdatePayload, object: &mut Mf2Object) -> Result<(), UpdateError> {
     for (key, val) in payload.replace {
-        object.set_props(key, val);
+        object.set_props(&key, val);
     }
 
     for (key, val) in payload.add {
-        object.add_props(key, val);
+        object.add_props(&key, val);
     }
 
     match payload.delete {
         Deletion::Complete(deletions) => {
             for deletion in deletions {
-                object.delete_prop(deletion);
+                object.delete_prop(&deletion);
             }
         }
 
         Deletion::Partial(deletions) => {
             for (key, value) in deletions {
-                object.delete_prop_values(key, value);
+                object.delete_prop_values(&key, value);
             }
         }
     }
+
+    let now = Mf2Value::String(chrono::Local::now().to_rfc3339());
+    object.set_prop("updated", now);
+
+    Ok(())
 }
 
+#[instrument]
 async fn update_slug_and_path(
     parts: &mut HashMap<&str, String>,
     object: &mut Mf2Object,
@@ -181,7 +188,7 @@ async fn update_slug_and_path(
             info!("new path: {}", repo_path.to_string_lossy());
 
             object.set_props(
-                String::from("mp-slug"),
+                "mp-slug",
                 vec![Mf2Value::String(slug.clone())],
             );
 

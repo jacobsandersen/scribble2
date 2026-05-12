@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
@@ -8,7 +8,7 @@ use tracing::{Instrument, info, info_span};
 
 use crate::{
     AppState, MapToResponse,
-    git::{self, CloneError},
+    git::CloneError,
     microformats::{Mf2Object, Mf2Value},
     micropub::{
         error::{not_found, system_error},
@@ -28,7 +28,10 @@ pub(in crate::micropub) enum SourceError {
     Storage(#[from] StorageError),
 
     #[error("request content was not found")]
-    NotFound
+    NotFound,
+
+    #[error("git operation failed: {0}")]
+    Git2(#[from] git2::Error)
 }
 
 impl MapToResponse for SourceError {
@@ -67,12 +70,12 @@ impl SourceJob {
 }
 
 impl Job for SourceJob {
-    fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
+    fn execute(self, repo: &git2::Repository) -> LocalBoxFuture<'_, Result<(), BoxError>> {
         Box::pin(async move {
             let span = self.span.clone();
             let run = async {
-                info!("cloning content repository...");
-                let (_, workdir) = git::clone_repo(&self.state).await?;
+                info!("getting repo workdir...");
+                let workdir = repo.workdir().ok_or(git2::Error::from_str("unable to get repo workdir"))?;
 
                 info!("checking for existing content at path...");
                 let public_url = &self.state.config.micropub.content.public_url;

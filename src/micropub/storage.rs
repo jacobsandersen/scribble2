@@ -1,6 +1,5 @@
 pub mod job;
 
-use async_tempfile::TempDir;
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use thiserror::Error;
@@ -26,7 +25,7 @@ pub(in crate::micropub) enum StorageError {
 fn create_content_path(
     slug: Option<String>,
     path_pattern: &PathPattern,
-    workdir: &TempDir,
+    workdir: &Path,
 ) -> (String, String, PathBuf) {
     let slug = if let Some(slug) = slug {
       slug::slugify(slug)
@@ -43,7 +42,7 @@ fn create_content_path(
 fn build_content_path(
   slug: String,
   path_pattern: &PathPattern,
-  workdir: &TempDir,
+  workdir: &Path,
   ctx: &mut HashMap<&str, String>
 ) -> (String, String, PathBuf) {
     let mut path = path_pattern.resolve(&ctx);

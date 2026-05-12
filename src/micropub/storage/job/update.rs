@@ -1,7 +1,6 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
 
-use async_tempfile::TempDir;
-use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use thiserror::Error;
 use tokio::{sync::oneshot::{self, Receiver}};
 use tower_http::BoxError;
@@ -66,12 +65,12 @@ impl UpdateJob {
 }
 
 impl Job for UpdateJob {
-    fn execute(self) -> BoxFuture<'static, Result<(), BoxError>> {
+    fn execute(self, repo: &git2::Repository) -> LocalBoxFuture<'_, Result<(), BoxError>> {
         Box::pin(async move {
             let span = self.span.clone();
             let run = async {
-                info!("cloning content repository...");
-                let (repo, workdir) = git::clone_repo(&self.state).await?;
+                info!("getting repo workdir...");
+                let workdir = repo.workdir().ok_or(git2::Error::from_str("unable to get repo workdir"))?;
 
                 info!("checking for existing content at path...");
                 let public_url = &self.state.config.micropub.content.public_url;
@@ -101,7 +100,7 @@ impl Job for UpdateJob {
                     &mut object,
                     path,
                     repo_path,
-                    &workdir,
+                    workdir,
                     &self.state.path_pattern,
                 )
                 .await?;
@@ -170,7 +169,7 @@ async fn update_slug_and_path(
     object: &mut Mf2Object,
     path: String,
     repo_path: PathBuf,
-    workdir: &TempDir,
+    workdir: &Path,
     path_pattern: &PathPattern,
 ) -> Result<(String, PathBuf, bool), UpdateError> {
     let slug = parts.get("slug").unwrap().clone();

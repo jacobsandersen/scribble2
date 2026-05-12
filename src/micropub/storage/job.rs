@@ -2,8 +2,9 @@ pub(in crate::micropub) mod create;
 pub(in crate::micropub) mod update;
 pub(in crate::micropub) mod source;
 
+use std::pin::Pin;
+
 use axum::{response::Response};
-use futures::future::BoxFuture;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tower_http::BoxError;
@@ -16,11 +17,13 @@ pub enum QueueError {
     Closed,
 }
 
+pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
 pub trait Job: Send + 'static {
-    fn execute(self) -> BoxFuture<'static, Result<(), BoxError>>;
+    fn execute(self, repo: &git2::Repository) -> LocalBoxFuture<'_, Result<(), BoxError>>;
 }
 
-pub type JobFn = Box<dyn FnOnce() -> BoxFuture<'static, Result<(), BoxError>> + Send>;
+pub type JobFn = Box<dyn FnOnce(&git2::Repository) -> LocalBoxFuture<Result<(), BoxError>> + Send>;
 
 pub struct JobQueue {
     tx: mpsc::Sender<JobFn>,
@@ -32,7 +35,7 @@ impl JobQueue {
     }
 
     pub async fn enqueue<J: Job>(&self, job: J) -> Result<(), QueueError> {
-        let job_fn: JobFn = Box::new(move || job.execute());
+        let job_fn: JobFn = Box::new(move |repo| job.execute(repo));
         self.tx.send(job_fn).await.map_err(|_| QueueError::Closed)
     }
 

@@ -11,10 +11,10 @@ pub mod path_pattern;
 pub mod telemetry;
 
 pub struct AppState {
-    pub config: ScribbleConfig,
+    pub config: Arc<ScribbleConfig>,
     pub path_pattern: PathPattern,
     pub reqwest: reqwest::Client,
-    pub job_queue: Arc<JobQueue>,
+    pub job_queue: Arc<JobQueue>
 }
 
 pub trait MapToResponse {

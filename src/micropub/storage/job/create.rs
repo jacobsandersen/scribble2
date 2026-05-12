@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use futures::future::LocalBoxFuture;
 use thiserror::Error;
 use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
@@ -46,12 +46,12 @@ impl CreateJob {
 }
 
 impl Job for CreateJob {
-  fn execute(mut self) -> BoxFuture<'static, Result<(), BoxError>> {
+  fn execute(mut self, repo: &git2::Repository) -> LocalBoxFuture<'_, Result<(), BoxError>> {
     Box::pin(async move {
       let span = self.span.clone();
       let run = async {
-        info!("cloning content repository...");
-        let (repo, workdir) = git::clone_repo(&self.state).await?;
+        info!("getting repo workdir...");
+        let workdir = repo.workdir().ok_or(git2::Error::from_str("unable to get repo workdir"))?;
 
         info!("creating content path...");
         let slug = self.payload.first_string_prop("mp-slug");

@@ -1,12 +1,13 @@
 use async_tempfile::TempDir;
 use axum::{Router, middleware, routing::{get, post}};
 use ::config::{Config, Environment, File};
+use moka::future::Cache;
 use tokio::{net::TcpListener, sync::mpsc};
 use tower_http::trace::TraceLayer;
 use scribble::{AppState, config::ScribbleConfig, git, micropub::{self, storage::job::{JobFn, JobQueue}}, path_pattern::PathPattern, telemetry};
 use tracing::{error, info, warn};
 use validator::Validate;
-use std::{error::Error, process::exit, sync::Arc};
+use std::{error::Error, process::exit, sync::Arc, time::Duration};
 
 
 #[tokio::main]
@@ -40,7 +41,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     config: config.clone(),
     path_pattern,
     reqwest: reqwest::ClientBuilder::new().build()?,
-    job_queue
+    job_queue,
+    auth_cache: Cache::builder().time_to_live(Duration::from_mins(10)).max_capacity(64).build()
   });
 
   info!("starting job queue...");
@@ -56,16 +58,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
       let repo_path = TempDir::new().await
         .unwrap_or_else(|e| panic!("failed to create temporary directory for git repository: {e}"));
 
-      let git_config = &config.micropub.content.git;
-
-      let repository = git::clone_repo(&git_config, &repo_path)
+      let repository = git::clone_repo(&config.micropub.content.git, &repo_path)
         .unwrap_or_else(|e| panic!("failed to clone repo: {e}"));
 
       while let Some(job) = job_rx.recv().await {
-        git::update_repo(&git_config, &repository).await.unwrap_or_else(|e| {
-          panic!("failed to reset git repo for job: {e}");
-        });
-
         job(&repository).await.unwrap_or_else(|e| {
           panic!("job failed: {e}");
         });

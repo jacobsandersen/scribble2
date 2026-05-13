@@ -51,7 +51,7 @@ pub async fn authorize(
 pub async fn validate_token_or_reject(state: &Arc<AppState>, token: &str) -> Result<TokenInfo, Response> {
   Ok(indieauth::validate_token(&state, token)
       .await
-      .map_err(|e| unauthorized(&e))?)
+      .map_err(|e| unauthorized(&format!("auth error: {e}")))?)
 }
 
 #[instrument]

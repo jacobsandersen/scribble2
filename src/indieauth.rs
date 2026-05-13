@@ -1,8 +1,27 @@
+use std::sync::Arc;
+
 use reqwest::StatusCode;
 use serde::Deserialize;
+use thiserror::Error;
 use tracing::{info, instrument};
 
 use crate::AppState;
+
+#[derive(Debug, Clone, Error)]
+pub enum IndieAuthError {
+  #[error("configured me_url does not match token's me_url")]
+  InvalidMeUrl,
+
+  #[error("error while calling indieauth service: {0}")]
+  Reqwest(Arc<reqwest::Error>)
+}
+
+impl From<reqwest::Error> for IndieAuthError {
+  fn from(value: reqwest::Error) -> Self {
+      // because reqwest refuses to implement Clone for its error type
+      IndieAuthError::Reqwest(Arc::new(value))
+  }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TokenInfo {
@@ -58,22 +77,34 @@ impl TokenInfo {
 /// With a valid TokenInfo, we compare the token's `me` claim to the instance's configured me_url. If
 /// these values do not match, the token is rejected. Otherwise, the token is accepted.
 #[instrument(skip(state))]
-pub async fn validate_token(state: &AppState, token: &str) -> Result<TokenInfo, String> {
-  let token = validate_token_inner(state, token).await.map_err(|e| {
-    format!("failed to validate token: {}", e)
-  })?;
+pub async fn validate_token(state: &AppState, token: &str) -> Result<TokenInfo, IndieAuthError> {
+  match state.auth_cache.get(token).await {
+    Some(Ok(token)) => Ok(token),
+    Some(Err(err)) => Err(err),
+    None => {
+      let info = validate_token_inner(state, token).await;
 
-  if token.me != state.config.auth.me_url {
-    return Err(format!("failed to validate token: configured me_url does not match token's `me` claim"));
+      let res = match info {
+        Ok(info) => {
+          if info.me != state.config.auth.me_url {
+            Err(IndieAuthError::InvalidMeUrl)
+          } else {
+            Ok(info)
+          }
+        },
+        Err(e) => Err(e)
+      };
+
+      state.auth_cache.insert(token.to_string(), res.clone()).await;
+      res
+    }
   }
-
-  Ok(token)
 }
 
 async fn validate_token_inner(
     state: &AppState,
     token: &str,
-) -> Result<TokenInfo, reqwest::Error> {
+) -> Result<TokenInfo, IndieAuthError> {
     let url = &state.config.auth.validate_token_url[..];
 
     let payload = [("token", token)];

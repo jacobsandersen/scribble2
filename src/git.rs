@@ -62,7 +62,7 @@ pub fn get_remote_callbacks(config: &MicropubContentGit) -> RemoteCallbacks<'_> 
 fn get_fetch_options(config: &MicropubContentGit) -> git2::FetchOptions<'_> {
     let mut fo = git2::FetchOptions::new();
     fo.remote_callbacks(get_remote_callbacks(config));
-    fo.depth(1);
+    // fo.depth(1);
     fo
 }
 
@@ -105,7 +105,7 @@ fn reset_to_head(config: &MicropubContentGit, repo: &git2::Repository) -> Result
 
 /// Cleans any unstaged files from the local repo to prepare for new work
 #[instrument(skip(repo))]
-async fn clean_repo(repo: &git2::Repository) -> Result<(), git2::Error> {
+pub async fn clean_repo(repo: &git2::Repository) -> Result<(), git2::Error> {
   let mut opts = git2::StatusOptions::new();
   opts.include_untracked(true)
       .recurse_untracked_dirs(true)

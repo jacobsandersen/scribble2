@@ -1,15 +1,24 @@
-use std::{collections::HashMap, path::{Path, PathBuf}, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use futures::future::LocalBoxFuture;
 use thiserror::Error;
-use tokio::{sync::oneshot::{self, Receiver}};
+use tokio::sync::oneshot::{self, Receiver};
 use tower_http::BoxError;
-use tracing::{Instrument, info, info_span, instrument, warn};
+use tracing::{Instrument, error, info, info_span, instrument, warn};
 
 use crate::{
-    AppState, MapToResponse, git, microformats::{Mf2Object, Mf2Value}, micropub::{
-        error::{not_found, system_error}, post::update::{Deletion, UpdatePayload}, storage::{self, job::Job}
-    }, path_pattern::PathPattern
+    AppState, MapToResponse, git,
+    microformats::{Mf2Object, Mf2Value},
+    micropub::{
+        error::{not_found, system_error},
+        post::update::{Deletion, UpdatePayload},
+        storage::{self, job::Job},
+    },
+    path_pattern::PathPattern,
 };
 
 #[derive(Debug, Error)]
@@ -33,84 +42,102 @@ pub(in crate::micropub) enum UpdateError {
     Storage(#[from] storage::StorageError),
 
     #[error("git operation failed: {0}")]
-    Git2(#[from] git2::Error)
+    Git2(#[from] git2::Error),
 }
 
 impl MapToResponse for UpdateError {
-  fn map_to_response(self) -> axum::response::Response {
-      match self {
-        Self::NotFound(msg) => {
-          not_found(&msg)
-        },
-        _ => {
-          system_error(&format!("failed to update post: {self}"))
+    fn map_to_response(self) -> axum::response::Response {
+        match self {
+            Self::NotFound(msg) => not_found(&msg),
+            _ => system_error(&format!("failed to update post: {self}")),
         }
-      }
-  }
+    }
 }
 
 pub(in crate::micropub) struct UpdateJob {
     pub state: Arc<AppState>,
     pub payload: UpdatePayload,
     pub respond_to: oneshot::Sender<Result<(String, bool), UpdateError>>,
-    pub span: tracing::Span
+    pub span: tracing::Span,
 }
 
 impl UpdateJob {
-  pub fn new(state: Arc<AppState>, payload: UpdatePayload) -> (UpdateJob, Receiver<Result<(String, bool), UpdateError>>) {
-    let (respond_to, rx) = oneshot::channel();
-    let span = info_span!(parent: tracing::Span::current(), "update_job");
-    (UpdateJob { state, payload, respond_to, span }, rx)
-  }
+    pub fn new(
+        state: Arc<AppState>,
+        payload: UpdatePayload,
+    ) -> (UpdateJob, Receiver<Result<(String, bool), UpdateError>>) {
+        let (respond_to, rx) = oneshot::channel();
+        let span = info_span!(parent: tracing::Span::current(), "update_job");
+        (
+            UpdateJob {
+                state,
+                payload,
+                respond_to,
+                span,
+            },
+            rx,
+        )
+    }
 }
 
 impl Job for UpdateJob {
     fn execute(self, repo: &git2::Repository) -> LocalBoxFuture<'_, Result<(), BoxError>> {
         Box::pin(async move {
-            let span = self.span.clone();
-            let run = async {
-                info!("getting repo workdir...");
-                let workdir = repo.workdir().ok_or(git2::Error::from_str("unable to get repo workdir"))?;
+            let _ = self.respond_to.send(
+                async {
+                    info!("cleaning repo...");
+                    git::clean_repo(&repo).await?;
 
-                info!("checking for existing content at path...");
-                let public_url = &self.state.config.micropub.content.public_url;
-                let payload_url = &self.payload.url;
+                    info!("getting repo workdir...");
+                    let workdir = repo
+                        .workdir()
+                        .ok_or(git2::Error::from_str("unable to get repo workdir"))?;
 
-                let path = self
-                    .payload
-                    .url
-                    .strip_prefix(public_url)
-                    .ok_or(UpdateError::ForeignUrl(payload_url.to_string()))?
-                    .to_string();
+                    info!("checking for existing content at path...");
+                    let public_url = &self.state.config.micropub.content.public_url;
+                    let payload_url = &self.payload.url;
 
-                let mut parts = self.state.path_pattern.extract(&path).ok_or_else(|| {
-                    info!("received url with invalid path pattern (unable to extract)");
-                    UpdateError::NotFound(payload_url.clone())
-                })?;
+                    let path = self
+                        .payload
+                        .url
+                        .strip_prefix(public_url)
+                        .ok_or(UpdateError::ForeignUrl(payload_url.to_string()))?
+                        .to_string();
 
+                    let mut parts = self.state.path_pattern.extract(&path).ok_or_else(|| {
+                        info!("received url with invalid path pattern (unable to extract)");
+                        UpdateError::NotFound(payload_url.clone())
+                    })?;
 
-                info!("patching content...");
-                let repo_path = workdir.join(&path);
-                let mut object = storage::read_to_object(&repo_path).await?;
-                patch_object(self.payload, &mut object)?;
+                    info!("patching content...");
+                    let repo_path = workdir.join(&path);
+                    let mut object = storage::read_to_object(&repo_path).await?;
+                    patch_object(self.payload, &mut object)?;
 
-                info!("updating slug (if needed)...");
-                let (path, repo_path, changed) = update_slug_and_path(
-                    &mut parts,
-                    &mut object,
-                    path,
-                    repo_path,
-                    workdir,
-                    &self.state.path_pattern,
-                )
-                .await?;
+                    info!("updating slug (if needed)...");
+                    let (path, repo_path, changed) = update_slug_and_path(
+                        &mut parts,
+                        &mut object,
+                        path,
+                        repo_path,
+                        workdir,
+                        &self.state.path_pattern,
+                    )
+                    .await?;
 
-                info!("saving patched content to file...");
-                storage::write_to_file(&object, &repo_path).await?;
+                    info!("saving patched content to file...");
+                    storage::write_to_file(&object, &repo_path).await?;
 
-                info!("committing file to git...");
-                git::add_all_and_commit(&repo, "update post")?;
+                    info!("committing file to git...");
+                    git::add_all_and_commit(&repo, "update post")?;
 
+                    Ok((String::from(path), changed))
+                }
+                .instrument(info_span!(parent: self.span.clone(), "update_job"))
+                .await,
+            );
+
+            info_span!(parent: self.span.clone(), "update_job_tail").in_scope(|| {
                 info!("pushing repository to remote...");
                 let branch = &self
                     .state
@@ -121,13 +148,11 @@ impl Job for UpdateJob {
                     .branch
                     .as_deref()
                     .unwrap_or("main");
+                let _ = git::push(&self.state, &repo, branch).inspect_err(|e| {
+                    error!("failed to push git repository: {e}");
+                });
+            });
 
-                git::push(&self.state, &repo, branch)?;
-
-                Ok((String::from(path), changed))
-            }.instrument(span);
-
-            let _ = self.respond_to.send(run.await);
             Ok(())
         })
     }
@@ -186,10 +211,7 @@ async fn update_slug_and_path(
                 storage::build_content_path(new_slug, path_pattern, &workdir, parts);
             info!("new path: {}", repo_path.to_string_lossy());
 
-            object.set_props(
-                "mp-slug",
-                vec![Mf2Value::String(slug.clone())],
-            );
+            object.set_props("mp-slug", vec![Mf2Value::String(slug.clone())]);
 
             return Ok((path, repo_path, true));
         };

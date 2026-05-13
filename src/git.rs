@@ -1,11 +1,11 @@
 use std::{path::Path, sync::Arc};
 
 use async_tempfile::TempDir;
-use git2::{Cred, CredentialType, IndexAddOption, Oid, Remote, RemoteCallbacks};
+use git2::{Cred, CredentialType, IndexAddOption, Oid, RemoteCallbacks, Status};
 use thiserror::Error;
 use tracing::instrument;
 
-use crate::AppState;
+use crate::{AppState, config::MicropubContentGit};
 
 #[derive(Debug, Error)]
 pub enum CloneError {
@@ -24,12 +24,10 @@ pub enum CloneError {
 /// 
 /// For HTTP(s) authentication, will provide the configured username and password. If none is found,
 /// this authentication will fail.
-pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
-    let git = &state.config.micropub.content.git;
-
+pub fn get_remote_callbacks(config: &MicropubContentGit) -> RemoteCallbacks<'_> {
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(|_url, username_from_url, r#type| {
-        let username = git
+        let username = config
             .username
             .as_deref()
             .or(username_from_url)
@@ -38,18 +36,18 @@ pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
         if r#type.contains(CredentialType::USERNAME) {
             return Cred::username(username);
         } else if r#type.contains(CredentialType::SSH_KEY) {
-            let key_path = git
+            let key_path = config
                 .key_path
                 .as_deref()
                 .map(|s| Path::new(s))
                 .filter(|p| p.is_file())
                 .ok_or_else(|| git2::Error::from_str("failed to resolve ssh private key"))?;
 
-            return Cred::ssh_key(username, None, key_path, git.password.as_deref());
+            return Cred::ssh_key(username, None, key_path, config.password.as_deref());
         } else if r#type.contains(CredentialType::USER_PASS_PLAINTEXT) {
             return Cred::userpass_plaintext(
                 username,
-                git.password
+                config.password
                     .as_deref()
                     .ok_or_else(|| git2::Error::from_str("no git password found"))?,
             );
@@ -61,25 +59,87 @@ pub fn get_remote_callbacks(state: &Arc<AppState>) -> RemoteCallbacks<'_> {
     callbacks
 }
 
-/// Clones the configured repository into a temporary directory.
-/// The directory will be deleted when the TempDir goes out of scope.
-#[instrument(skip(state))]
-pub async fn clone_repo(state: &Arc<AppState>) -> Result<(git2::Repository, TempDir), CloneError> {
-    let location = TempDir::new().await.map_err(|e| CloneError::TempDir(e))?;
-
+fn get_fetch_options(config: &MicropubContentGit) -> git2::FetchOptions<'_> {
     let mut fo = git2::FetchOptions::new();
-    fo.remote_callbacks(get_remote_callbacks(state));
-    fo.depth(1);
+    fo.remote_callbacks(get_remote_callbacks(config));
+    // fo.depth(1);
+    fo
+}
+
+/// Uses the provided git configuration to clones the repository into the provided 
+/// temporary directory.
+#[instrument]
+pub fn clone_repo(config: &MicropubContentGit, location: &TempDir) -> Result<git2::Repository, CloneError> {
+    let fo = get_fetch_options(config);
 
     let mut builder = git2::build::RepoBuilder::new();
     builder.fetch_options(fo);
     
     let repo = builder.clone(
-      &state.config.micropub.content.git.repository, 
+      &config.repository,
       location.dir_path()
     ).map_err(|e| CloneError::Git2(e))?;
 
-    Ok((repo, location))
+    Ok(repo)
+}
+
+/// Fetches the remote and updates the local repository with any upstream changes
+#[instrument(skip(repo))]
+fn fetch_repo(config: &MicropubContentGit, repo: &git2::Repository) -> Result<(), git2::Error> {
+  let mut remote = repo.find_remote("origin")?;
+  let mut fo = get_fetch_options(config);
+  let branch = config.branch.clone().unwrap_or(String::from("main"));
+  remote.fetch(&[&branch], Some(&mut fo), None)?;
+  Ok(())
+}
+
+/// Hard resets the local repo to match the remote, throwing away anything else
+#[instrument(skip(repo))]
+fn reset_to_head(config: &MicropubContentGit, repo: &git2::Repository) -> Result<(), git2::Error> {
+  let branch = config.branch.clone().unwrap_or(String::from("main"));
+  let origin_branch = repo.find_reference(&format!("refs/remotes/origin/{branch}"))?;
+  let commit = origin_branch.peel_to_commit()?;
+  repo.reset(commit.as_object(), git2::ResetType::Hard, None)?;
+  Ok(())
+}
+
+/// Cleans any unstaged files from the local repo to prepare for new work
+#[instrument(skip(repo))]
+pub async fn clean_repo(repo: &git2::Repository) -> Result<(), git2::Error> {
+  let mut opts = git2::StatusOptions::new();
+  opts.include_untracked(true)
+      .recurse_untracked_dirs(true)
+      .include_ignored(false);
+
+  let workdir = repo.workdir().ok_or_else(|| git2::Error::from_str("bare repo"))?;
+  let statuses = repo.statuses(Some(&mut opts))?;
+
+  for entry in statuses.iter() {
+    let status = entry.status();
+    if status.contains(Status::WT_NEW) {
+      if let Some(path) = entry.path() {
+        let abs = workdir.join(path);
+        if abs.is_dir() {
+          let _ = tokio::fs::remove_dir_all(&abs).await;
+        } else {
+          let _ = tokio::fs::remove_file(&abs).await;
+        }
+      }
+    }
+  }
+
+  Ok(())
+}
+
+/// Forcibly updates the provided repository with the remote by fetching, then
+/// performing a hard reset, and finally removes any untracked files or directories
+/// recursively.
+#[instrument(skip(repo))]
+pub async fn update_repo(config: &MicropubContentGit, repo: &git2::Repository) -> Result<(), git2::Error> {
+  fetch_repo(config, repo)?; // similar to `git fetch origin <branch>`
+  reset_to_head(config, repo)?; // similar to `git reset --hard origin/<branch>`
+  clean_repo(repo).await?; // similar to `git clean -fd`
+  Ok(())
 }
 
 /// Adds all changes to the repository index (i.e., stages everything for commit)
@@ -133,25 +193,9 @@ pub fn push(state: &Arc<AppState>, repo: &git2::Repository, branch: &str) -> Res
   let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
 
   let mut po = git2::PushOptions::new();
-  po.remote_callbacks(get_remote_callbacks(state));
+  po.remote_callbacks(get_remote_callbacks(&state.config.micropub.content.git));
 
   remote.push(&[&refspec], Some(&mut po))?;
 
   Ok(())
-}
-
-/// Attempts to connect to the configured repository, using the configured credentials.
-/// This is used as an initial healthcheck before finalizing startup.
-pub fn try_connect_repo(state: &Arc<AppState>) -> Result<(), git2::Error> {
-    let mut rem = Remote::create_detached(state.config.micropub.content.git.repository.clone())?;
-
-    rem.connect_auth(
-        git2::Direction::Fetch,
-        Some(get_remote_callbacks(state)),
-        None,
-    )?;
-
-    rem.disconnect()?;
-
-    Ok(())
 }

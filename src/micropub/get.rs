@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use axum::{Json, extract::{FromRequest, Request, State}, response::{IntoResponse, Response}};
+use axum::{Extension, Json, extract::{FromRequest, Request, State}, response::{IntoResponse, Response}};
 use axum_extra::extract::Query;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
 
-use crate::{AppState, micropub::{error::invalid_request, storage::job::source::SourceJob}};
+use crate::{AppState, indieauth::TokenInfo, micropub::{error::{invalid_request, unauthorized}, storage::job::source::SourceJob}};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryBaseRequest {
@@ -49,7 +49,11 @@ struct SyndicationTargetContext {
 }
 
 #[instrument(skip(state))]
-pub async fn handle(State(state): State<Arc<AppState>>, params: Query<QueryBaseRequest>, req: Request) -> Result<Response, Response> {
+pub async fn handle(State(state): State<Arc<AppState>>, token: Option<Extension<TokenInfo>>, params: Query<QueryBaseRequest>, req: Request) -> Result<Response, Response> {
+  if token.is_none() {
+    return Err(unauthorized("must authenticate"));
+  }
+
   match params.q.as_str() {
     "config" => handle_config(&state),
     "source" => handle_source(&state, req).await,

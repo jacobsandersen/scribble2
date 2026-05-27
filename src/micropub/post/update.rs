@@ -17,14 +17,14 @@ use crate::{
 };
 
 enum PropertyPolicy {
-  ReplaceOnly { max_values: usize },
+    ReplaceOnly { max_values: usize },
 }
 
 fn get_property_policy(prop: &str) -> Option<PropertyPolicy> {
-  match prop {
-    "mp-slug" => Some(PropertyPolicy::ReplaceOnly { max_values: 1 }),
-    _ => None
-  }
+    match prop {
+        "mp-slug" => Some(PropertyPolicy::ReplaceOnly { max_values: 1 }),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,68 +53,69 @@ pub(in crate::micropub) struct UpdatePayload {
 
 impl UpdatePayload {
     fn validate_payload(self) -> Result<Self, String> {
-      for (key, values) in &self.replace {
-        if let Some(policy) = get_property_policy(key) {
-          match policy {
-            PropertyPolicy::ReplaceOnly { max_values } if values.len() > max_values => {
-              let values = values.len();
-              return Err(format!("{key}: too many values ({values} > max {max_values})"))
-            },
+        for (key, values) in &self.replace {
+            if let Some(policy) = get_property_policy(key) {
+                match policy {
+                    PropertyPolicy::ReplaceOnly { max_values } if values.len() > max_values => {
+                        let values = values.len();
+                        return Err(format!(
+                            "{key}: too many values ({values} > max {max_values})"
+                        ));
+                    }
 
-            _ => {}
-          }
-        }
-      }
-
-      for key in self.add.keys() {
-        if let Some(policy) = get_property_policy(key) {
-          match policy {
-            PropertyPolicy::ReplaceOnly { .. } => {
-              return Err(format!("{key}: this property may only be set with replace"))
+                    _ => {}
+                }
             }
-          }
         }
-      }
 
-      match &self.delete {
-        Deletion::Complete(deletion) => {
-          for key in deletion {
-            if let Some(_) = get_property_policy(&key) {
-              return Err(format!("{key}: this property cannot be deleted"));
+        for key in self.add.keys() {
+            if let Some(policy) = get_property_policy(key) {
+                match policy {
+                    PropertyPolicy::ReplaceOnly { .. } => {
+                        return Err(format!("{key}: this property may only be set with replace"));
+                    }
+                }
             }
-          }
-        },
-
-        Deletion::Partial(deletion) => {
-          for (key, _) in deletion {
-            if let Some(_) = get_property_policy(&key) {
-              return Err(format!("{key}: this property cannot be deleted"));
-            }
-          }
         }
-      }
 
-      Ok(self)
+        match &self.delete {
+            Deletion::Complete(deletion) => {
+                for key in deletion {
+                    if let Some(_) = get_property_policy(&key) {
+                        return Err(format!("{key}: this property cannot be deleted"));
+                    }
+                }
+            }
+
+            Deletion::Partial(deletion) => {
+                for (key, _) in deletion {
+                    if let Some(_) = get_property_policy(&key) {
+                        return Err(format!("{key}: this property cannot be deleted"));
+                    }
+                }
+            }
+        }
+
+        Ok(self)
     }
 }
 
 impl TryFrom<MicropubPayload> for UpdatePayload {
-  type Error = Response;
+    type Error = Response;
 
-  fn try_from(value: MicropubPayload) -> Result<Self, Self::Error> {
-    match value {
-      MicropubPayload::Json(json) => {
-        Ok(serde_json::from_value::<UpdatePayload>(json).map_err(|e| {
-            info!("failed to deserialize JSON to micropub update payload: {e:?}");
-            invalid_request("invalid micropub update payload")
-        })?)
-      },
+    fn try_from(value: MicropubPayload) -> Result<Self, Self::Error> {
+        match value {
+            MicropubPayload::Json(json) => Ok(serde_json::from_value::<UpdatePayload>(json)
+                .map_err(|e| {
+                    info!("failed to deserialize JSON to micropub update payload: {e:?}");
+                    invalid_request("invalid micropub update payload")
+                })?),
 
-      MicropubPayload::Form(_) => {
-        Err(invalid_request("micropub update is defined for JSON bodies only"))
-      }
+            MicropubPayload::Form(_) => Err(invalid_request(
+                "micropub update is defined for JSON bodies only",
+            )),
+        }
     }
-  }
 }
 
 #[instrument(skip(state))]
@@ -126,11 +127,11 @@ pub async fn handle(state: Arc<AppState>, body: MicropubBody) -> Result<Response
 
     info!("converting micropub payload to update payload...");
     let payload = UpdatePayload::try_from(body.payload)?
-      .validate_payload()
-      .map_err(|e| {
-        info!("micropub update payload validation failed: {e}");
-        invalid_request(&e)
-      })?;
+        .validate_payload()
+        .map_err(|e| {
+            info!("micropub update payload validation failed: {e}");
+            invalid_request(&e)
+        })?;
 
     info!("waiting for update to complete...");
     let (job, rx) = UpdateJob::new(state.clone(), payload);

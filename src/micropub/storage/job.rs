@@ -1,10 +1,10 @@
 pub(in crate::micropub) mod create;
-pub(in crate::micropub) mod update;
 pub(in crate::micropub) mod source;
+pub(in crate::micropub) mod update;
 
 use std::pin::Pin;
 
-use axum::{response::Response};
+use axum::response::Response;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tower_http::BoxError;

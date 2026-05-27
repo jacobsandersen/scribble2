@@ -3,6 +3,9 @@ server:
   binding:
     ip: 0.0.0.0
     port: 9000
+  metrics_binding:
+    ip: 0.0.0.0
+    port: 9001
 
 monitoring:
   # Set to true if you want to ship traces and logs to open telemetry

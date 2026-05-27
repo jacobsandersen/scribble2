@@ -9,18 +9,18 @@ use crate::AppState;
 
 #[derive(Debug, Clone, Error)]
 pub enum IndieAuthError {
-  #[error("configured me_url does not match token's me_url")]
-  InvalidMeUrl,
+    #[error("configured me_url does not match token's me_url")]
+    InvalidMeUrl,
 
-  #[error("error while calling indieauth service: {0}")]
-  Reqwest(Arc<reqwest::Error>)
+    #[error("error while calling indieauth service: {0}")]
+    Reqwest(Arc<reqwest::Error>),
 }
 
 impl From<reqwest::Error> for IndieAuthError {
-  fn from(value: reqwest::Error) -> Self {
-      // because reqwest refuses to implement Clone for its error type
-      IndieAuthError::Reqwest(Arc::new(value))
-  }
+    fn from(value: reqwest::Error) -> Self {
+        // because reqwest refuses to implement Clone for its error type
+        IndieAuthError::Reqwest(Arc::new(value))
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -32,39 +32,40 @@ pub struct TokenInfo {
 
 #[derive(Debug, PartialEq)]
 pub enum TokenScope {
-  Create,
-  Draft,
-  Update,
-  Delete,
-  Undelete,
-  Media,
-  Unknown(String)
+    Create,
+    Draft,
+    Update,
+    Delete,
+    Undelete,
+    Media,
+    Unknown(String),
 }
 
 impl From<String> for TokenScope {
-  fn from(value: String) -> Self {
-    match value.as_str() {
-      "create" => TokenScope::Create,
-      "draft" => TokenScope::Draft,
-      "update" => TokenScope::Update,
-      "delete" => TokenScope::Delete,
-      "undelete" => TokenScope::Undelete,
-      "media" => TokenScope::Media,
-      unknown => TokenScope::Unknown(unknown.to_string())
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "create" => TokenScope::Create,
+            "draft" => TokenScope::Draft,
+            "update" => TokenScope::Update,
+            "delete" => TokenScope::Delete,
+            "undelete" => TokenScope::Undelete,
+            "media" => TokenScope::Media,
+            unknown => TokenScope::Unknown(unknown.to_string()),
+        }
     }
-  }
 }
 
 impl TokenInfo {
-  pub fn scope(&self) -> Vec<TokenScope> {
-    match &self.scope {
-      Some(scope) => {
-        scope.split(" ").map(|s| TokenScope::from(s.to_string())).collect()
-      },
+    pub fn scope(&self) -> Vec<TokenScope> {
+        match &self.scope {
+            Some(scope) => scope
+                .split(" ")
+                .map(|s| TokenScope::from(s.to_string()))
+                .collect(),
 
-      None => Vec::new()
+            None => Vec::new(),
+        }
     }
-  }
 }
 
 /// validate_token attempts to validate a given token against the configured token validation endpoint.
@@ -78,33 +79,33 @@ impl TokenInfo {
 /// these values do not match, the token is rejected. Otherwise, the token is accepted.
 #[instrument(skip(state))]
 pub async fn validate_token(state: &AppState, token: &str) -> Result<TokenInfo, IndieAuthError> {
-  match state.auth_cache.get(token).await {
-    Some(Ok(token)) => Ok(token),
-    Some(Err(err)) => Err(err),
-    None => {
-      let info = validate_token_inner(state, token).await;
+    match state.auth_cache.get(token).await {
+        Some(Ok(token)) => Ok(token),
+        Some(Err(err)) => Err(err),
+        None => {
+            let info = validate_token_inner(state, token).await;
 
-      let res = match info {
-        Ok(info) => {
-          if info.me != state.config.auth.me_url {
-            Err(IndieAuthError::InvalidMeUrl)
-          } else {
-            Ok(info)
-          }
-        },
-        Err(e) => Err(e)
-      };
+            let res = match info {
+                Ok(info) => {
+                    if info.me != state.config.auth.me_url {
+                        Err(IndieAuthError::InvalidMeUrl)
+                    } else {
+                        Ok(info)
+                    }
+                }
+                Err(e) => Err(e),
+            };
 
-      state.auth_cache.insert(token.to_string(), res.clone()).await;
-      res
+            state
+                .auth_cache
+                .insert(token.to_string(), res.clone())
+                .await;
+            res
+        }
     }
-  }
 }
 
-async fn validate_token_inner(
-    state: &AppState,
-    token: &str,
-) -> Result<TokenInfo, IndieAuthError> {
+async fn validate_token_inner(state: &AppState, token: &str) -> Result<TokenInfo, IndieAuthError> {
     let url = &state.config.auth.validate_token_url[..];
 
     let payload = [("token", token)];
@@ -118,20 +119,21 @@ async fn validate_token_inner(
         .send()
         .await
         .inspect_err(|e| info!("error sending POST request for token validation: {e:#?}"))?;
-    
+
     if response.status() == StatusCode::OK {
-      let maybe_info = response.json::<TokenInfo>().await;
-      if maybe_info.is_ok() {
-        return Ok(maybe_info.unwrap());
-      }
+        let maybe_info = response.json::<TokenInfo>().await;
+        if maybe_info.is_ok() {
+            return Ok(maybe_info.unwrap());
+        }
     }
 
-    info!("modern token validation method failed, trying legacy token validation method as fallback");
+    info!(
+        "modern token validation method failed, trying legacy token validation method as fallback"
+    );
 
     // This is an old validation routine that is no longer standardized. We send a GET request to the token endpoint
     // with the token in the bearer auth header. IndieAuth works in this manner, despite this being nonstandard.
-    Ok(
-      state
+    Ok(state
         .reqwest
         .get(url)
         .header("Accept", "application/json")
@@ -141,6 +143,7 @@ async fn validate_token_inner(
         .inspect_err(|e| info!("error sending GET request for fallback token validation: {e:#?}"))?
         .json::<TokenInfo>()
         .await
-        .inspect_err(|e| info!("error deserializing fallback token validation response to TokenInfo: {e:#?}"))?
-    )
+        .inspect_err(|e| {
+            info!("error deserializing fallback token validation response to TokenInfo: {e:#?}")
+        })?)
 }

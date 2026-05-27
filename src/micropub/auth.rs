@@ -8,7 +8,11 @@ use axum::{
 };
 use tracing::{info, instrument};
 
-use crate::{AppState, indieauth::{self, TokenInfo}, micropub::error::{self, unauthorized}};
+use crate::{
+    AppState,
+    indieauth::{self, TokenInfo},
+    micropub::error::{self, unauthorized},
+};
 
 #[derive(Debug)]
 enum AuthError {
@@ -48,10 +52,13 @@ pub async fn authorize(
 }
 
 #[instrument(skip(state))]
-pub async fn validate_token_or_reject(state: &Arc<AppState>, token: &str) -> Result<TokenInfo, Response> {
-  Ok(indieauth::validate_token(&state, token)
-      .await
-      .map_err(|e| unauthorized(&format!("auth error: {e}")))?)
+pub async fn validate_token_or_reject(
+    state: &Arc<AppState>,
+    token: &str,
+) -> Result<TokenInfo, Response> {
+    Ok(indieauth::validate_token(&state, token)
+        .await
+        .map_err(|e| unauthorized(&format!("auth error: {e}")))?)
 }
 
 #[instrument]

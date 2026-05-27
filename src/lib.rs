@@ -2,7 +2,12 @@ use std::sync::Arc;
 
 use moka::future::Cache;
 
-use crate::{config::ScribbleConfig, indieauth::{IndieAuthError, TokenInfo}, micropub::storage::job::JobQueue, path_pattern::PathPattern};
+use crate::{
+    config::ScribbleConfig,
+    indieauth::{IndieAuthError, TokenInfo},
+    micropub::storage::job::JobQueue,
+    path_pattern::PathPattern,
+};
 
 pub mod config;
 pub mod git;
@@ -17,9 +22,9 @@ pub struct AppState {
     pub path_pattern: PathPattern,
     pub reqwest: reqwest::Client,
     pub job_queue: Arc<JobQueue>,
-    pub auth_cache: Cache<String, Result<TokenInfo, IndieAuthError>>
+    pub auth_cache: Cache<String, Result<TokenInfo, IndieAuthError>>,
 }
 
 pub trait MapToResponse {
-  fn map_to_response(self) -> axum::response::Response;
+    fn map_to_response(self) -> axum::response::Response;
 }

@@ -1,16 +1,16 @@
 pub mod job;
 
-use std::{collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 use tokio::{fs, io};
 use tracing::{info, instrument};
 use uuid::Uuid;
 
-use crate::{
-    microformats::Mf2Object,
-    path_pattern::PathPattern,
-};
+use crate::{microformats::Mf2Object, path_pattern::PathPattern};
 
 #[derive(Debug, Error)]
 pub(in crate::micropub) enum StorageError {
@@ -28,9 +28,9 @@ fn create_content_path(
     workdir: &Path,
 ) -> (String, String, PathBuf) {
     let slug = if let Some(slug) = slug {
-      slug::slugify(slug)
+        slug::slugify(slug)
     } else {
-      uuid()
+        uuid()
     };
 
     let mut ctx = path_pattern.new_context(&slug);
@@ -40,10 +40,10 @@ fn create_content_path(
 
 #[instrument]
 fn build_content_path(
-  slug: String,
-  path_pattern: &PathPattern,
-  workdir: &Path,
-  ctx: &mut HashMap<&str, String>
+    slug: String,
+    path_pattern: &PathPattern,
+    workdir: &Path,
+    ctx: &mut HashMap<&str, String>,
 ) -> (String, String, PathBuf) {
     let mut path = path_pattern.resolve(&ctx);
     let mut abs_path = workdir.join(&path);
@@ -63,7 +63,8 @@ async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), Storag
     let path = path.with_extension("json");
 
     info!("serializing payload...");
-    let payload_json = serde_json::to_string_pretty(&payload).map_err(|e| StorageError::Serde(e))?;
+    let payload_json =
+        serde_json::to_string_pretty(&payload).map_err(|e| StorageError::Serde(e))?;
 
     info!("writing payload to file...");
     let parent_paths = path.parent().unwrap_or(Path::new(""));
@@ -81,25 +82,25 @@ async fn write_to_file(payload: &Mf2Object, path: &PathBuf) -> Result<(), Storag
 
 #[instrument]
 async fn read_to_object(path: &PathBuf) -> Result<Mf2Object, StorageError> {
-  info!("finalizing path...");
-  let path = path.with_extension("json");
+    info!("finalizing path...");
+    let path = path.with_extension("json");
 
-  info!("reading file to string...");
-  let content = fs::read_to_string(path).await?;
+    info!("reading file to string...");
+    let content = fs::read_to_string(path).await?;
 
-  info!("converting string to object...");
-  Ok(serde_json::from_str::<Mf2Object>(&content)?)
+    info!("converting string to object...");
+    Ok(serde_json::from_str::<Mf2Object>(&content)?)
 }
 
 #[instrument]
 async fn delete_file(path: &PathBuf) -> Result<(), StorageError> {
-  info!("finalizing path...");
-  let path = path.with_extension("json");
+    info!("finalizing path...");
+    let path = path.with_extension("json");
 
-  info!("deleting file...");
-  fs::remove_file(path).await?;
-  
-  Ok(())
+    info!("deleting file...");
+    fs::remove_file(path).await?;
+
+    Ok(())
 }
 
 fn uuid() -> String {

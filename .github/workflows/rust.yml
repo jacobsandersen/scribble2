@@ -34,6 +34,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Get app version
+      id: version
+      run: |
+        VERSION=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+    
     - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
@@ -47,8 +53,8 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=sha,prefix=sha-
           type=raw,value=latest
+          type=raw,value=${{ steps.version.outputs.version }}+${{ github.run_number }}
 
     - name: Build and push
       uses: docker/build-push-action@v6
